@@ -1,0 +1,10 @@
+import type { RequestHandler } from "express";
+import type { z } from "zod";
+import { assignmentIdSchema, createProductDiscountSchema, updateProductDiscountSchema } from "./product-discount.schemas";
+import * as service from "./product-discount.service";
+const id = (value: unknown) => assignmentIdSchema.parse(value);
+export const list: RequestHandler = async (req, res) => res.json({ success: true, data: await service.list(req.query) });
+export const get: RequestHandler = async (req, res) => res.json({ success: true, data: { assignment: await service.get(id(req.params.id)) } });
+export const create: RequestHandler = async (req, res) => res.status(201).json({ success: true, data: { assignment: await service.create(req.body as z.infer<typeof createProductDiscountSchema>) } });
+export const update: RequestHandler = async (req, res) => res.json({ success: true, data: { assignment: await service.update(id(req.params.id), req.body as z.infer<typeof updateProductDiscountSchema>) } });
+export const remove: RequestHandler = async (req, res) => { await service.remove(id(req.params.id)); res.status(204).send(); };

@@ -1,0 +1,420 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  EMPLOYEE
+  ADMIN
+
+  @@map("UserRole")
+}
+
+enum OrderStatus {
+  PLACED @map("PENDING")
+  CONFIRMED
+  PROCESSING
+  READY_TO_SHIP
+  SHIPPED
+  DELIVERED
+  CANCELLED
+
+  @@map("OrderStatus")
+}
+
+enum NotificationType {
+  ACCOUNT_CREATED
+  ORDER_PLACED
+  INFO @map("info")
+  SUCCESS @map("success")
+
+  @@map("notification_type")
+}
+
+enum GlassType {
+  NONE
+  OPTION_1
+  OPTION_2
+
+  @@map("GlassType")
+}
+
+enum CouponType {
+  PERCENTAGE
+  FLAT
+  LIMITED_COUNT
+  ORDER_PRICE_ABOVE
+  ONCE_PER_USER
+  NEW_USER
+  FESTIVAL
+  BUY_ONE_GET_ONE
+  BUY_TWO_GET_ONE
+
+  @@map("coupon_type")
+}
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FLAT
+  NONE
+
+  @@map("coupon_discount_type")
+}
+
+enum AppointmentLocation {
+  ODDANCHATRAM
+  COIMBATORE
+
+  @@map("appointment_location")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  RESCHEDULED
+  CANCELLED
+  COMPLETED
+
+  @@map("appointment_status")
+}
+
+enum AppointmentEmailStatus {
+  PENDING
+  SENT
+  FAILED
+
+  @@map("appointment_email_status")
+}
+
+model User {
+  id                    String   @id @default(uuid())
+  name                  String
+  email                 String   @unique
+  isEmailVerified       Boolean  @default(false)
+  phoneNumber           String?  @unique
+  isPhoneNumberVerified Boolean  @default(false)
+  addressLine           String?
+  postalCode            String?
+  city                  String?  @map("cityName")
+  state                 String?  @map("stateName")
+  country               String?  @map("countryName")
+  gender                String?
+  role                  UserRole @default(CUSTOMER)
+  isActive              Boolean  @default(true)
+  createdById           String?  @map("createdBy")
+  createdAt             DateTime @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime @default(now()) @updatedAt @db.Timestamp(3)
+
+  createdBy         User?          @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers      User[]         @relation("UserCreatedBy")
+  addresses         UserAddress[]
+  materials         Material[]     @relation("MaterialCreatedBy")
+  variants          Variant[]      @relation("VariantCreatedBy")
+  products          Product[]      @relation("ProductCreatedBy")
+  cart              Cart?
+  orders            Order[]
+  wishlistItems     Wishlist[]
+  notifications     Notification[] @relation("NotificationRecipient")
+  notificationsRead Notification[] @relation("NotificationReadBy")
+  couponsCreated    Coupon[]       @relation("CouponCreatedBy")
+
+  @@index([createdById])
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Coupon {
+  id                String             @id @default(uuid())
+  code              String             @unique @map("couponCode") @db.VarChar(40)
+  description       String?
+  couponType        CouponType         @map("couponType")
+  discountType      CouponDiscountType @map("discountType")
+  discountValue     Decimal            @map("discountValue") @db.Decimal(12, 2)
+  minimumOrderValue Decimal            @default(0) @map("minimumOrderValue") @db.Decimal(12, 2)
+  usageLimit        Int?               @map("usageLimit")
+  usagePerUser      Int?               @map("usagePerUser")
+  usageCount        Int                @default(0) @map("usageCount")
+  newUserOnly       Boolean            @default(false) @map("newUserOnly")
+  festivalCoupon    Boolean            @default(false) @map("festivalCoupon")
+  buyOneGetOne      Boolean            @default(false) @map("buyOneGetOne")
+  buyTwoGetOne      Boolean            @default(false) @map("buyTwoGetOne")
+  isActive          Boolean            @default(true) @map("isActive")
+  startDate         DateTime           @map("startDate") @db.Timestamp(3)
+  endDate           DateTime           @map("endDate") @db.Timestamp(3)
+  expiresAt         DateTime           @map("expiresAt") @db.Timestamp(3)
+  createdById       String?            @map("createdBy")
+  createdAt         DateTime           @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  createdBy         User?              @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  discounts         ProductDiscount[]
+
+  @@index([isActive, startDate, endDate])
+  @@index([couponType])
+  @@map("coupon")
+}
+
+model ProductDiscount {
+  id               String    @id @default(uuid())
+  productVariantId String    @map("productVariantId")
+  couponId         String    @map("couponId")
+  expiresAt        DateTime? @map("expiresAt") @db.Timestamp(3)
+  createdAt        DateTime  @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  variant          Variant   @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  coupon           Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([productVariantId, couponId])
+  @@index([productVariantId])
+  @@index([couponId])
+  @@map("product_discount")
+}
+
+model UserAddress {
+  id            String @id @default(uuid())
+  userId        String @map("userId")
+  addressLine   String @map("addressLine") @db.VarChar(255)
+  postalCode    String @map("postCode") @db.VarChar(20)
+  city          String @db.VarChar(100)
+  state         String @db.VarChar(100)
+  country       String @db.VarChar(100)
+  contactPerson String @map("contactPerson") @db.VarChar(120)
+  contactNumber String @map("contactNumber") @db.VarChar(20)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([userId])
+  @@map("user_address")
+}
+
+model Material {
+  id              String    @id @default(uuid())
+  name            String    @db.VarChar(120)
+  description     String?
+  brandName       String    @map("brandName") @db.VarChar(120)
+  material        String    @db.VarChar(120)
+  availableColors String[]  @default([]) @map("availableColors")
+  isActive        Boolean   @default(true) @map("isActive")
+  createdAt       DateTime  @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  createdById     String?   @map("createdBy")
+  createdBy       User?     @relation("MaterialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  products        Product[]
+
+  @@unique([brandName, name])
+  @@index([createdById])
+  @@index([isActive])
+  @@map("Material")
+}
+
+model Variant {
+  id              String            @id @default(uuid())
+  productId       String?           @map("productId")
+  color           String            @db.VarChar(80)
+  frameSize       String            @map("frameSize") @db.VarChar(80)
+  mountType       String            @map("mountType") @db.VarChar(80)
+  glassType       GlassType         @default(NONE) @map("glassType")
+  stockQuantity   Int               @default(0) @map("stockQuantity")
+  isActive        Boolean           @default(true) @map("isActive")
+  createdAt       DateTime          @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  createdById     String?           @map("createdBy")
+  mrp             Decimal           @map("mrp") @db.Decimal(12, 2)
+  price           Decimal           @db.Decimal(12, 2)
+  createdBy       User?             @relation("VariantCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  product         Product?          @relation("ProductVariants", fields: [productId], references: [id], onDelete: Cascade)
+  primaryProducts Product[]         @relation("ProductPrimaryVariant")
+  discounts       ProductDiscount[]
+
+  @@unique([productId, color, frameSize, mountType, glassType, mrp, price])
+  @@index([productId])
+  @@index([createdById])
+  @@index([isActive])
+  @@map("ProductVariant")
+}
+
+model Product {
+  id                String   @id @default(uuid())
+  materialId        String   @map("materialId")
+  variantId         String?  @map("variantId")
+  productIdentifier String   @unique @map("productIdentifier") @db.VarChar(100)
+  productName       String   @map("productName") @db.VarChar(160)
+  createdById       String?  @map("createdBy")
+  createdAt         DateTime @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+
+  material      Material       @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  variant       Variant?       @relation("ProductPrimaryVariant", fields: [variantId], references: [id], onDelete: Restrict)
+  variants      Variant[]      @relation("ProductVariants")
+  createdBy     User?          @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  images        ProductImage[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  wishlistItems Wishlist[]
+
+  @@index([materialId])
+  @@index([variantId])
+  @@index([createdById])
+  @@index([productName])
+  @@map("Product")
+}
+
+model ProductImage {
+  id                String   @id @default(uuid())
+  productIdentifier String   @map("productIdentifier") @db.VarChar(100)
+  imageUrl          String   @map("imageUrl")
+  isPrimary         Boolean  @default(false) @map("isPrimary")
+  createdAt         DateTime @default(now()) @map("createdAt") @db.Timestamp(3)
+
+  product Product @relation(fields: [productIdentifier], references: [productIdentifier], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([productIdentifier])
+  @@map("ProductImage")
+}
+
+model Cart {
+  id         String   @id @default(uuid())
+  userId     String   @unique @map("userId")
+  createdAt  DateTime @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  totalPrice Decimal  @default(0) @map("totalPrice") @db.Decimal(12, 2)
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  @@map("Cart")
+}
+
+model CartItem {
+  id                String  @id @default(uuid())
+  cartId            String  @map("cartId")
+  productIdentifier String  @map("productIdentifier") @db.VarChar(100)
+  quantity          Int
+  subtotal          Decimal @db.Decimal(12, 2)
+  price             Decimal @db.Decimal(12, 2)
+
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productIdentifier], references: [productIdentifier], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([cartId, productIdentifier])
+  @@index([productIdentifier])
+  @@map("CartItem")
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  userId        String      @map("userId")
+  orderNumber   String      @unique @map("orderNumber") @db.VarChar(40)
+  totalPrice    Decimal     @map("totalAmount") @db.Decimal(12, 2)
+  status        OrderStatus @default(PLACED) @map("orderStatus")
+  userAddressId String      @map("userAddressId")
+  createdAt     DateTime    @default(now()) @map("createdAt") @db.Timestamp(3)
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+  remark        String?
+  couponId      String?     @map("couponId")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userAddress UserAddress @relation(fields: [userAddressId], references: [id], onDelete: Restrict)
+  items       OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([userAddressId])
+  @@map("Order")
+}
+
+model OrderItem {
+  id                String  @id @default(uuid())
+  orderId           String  @map("orderId")
+  productIdentifier String? @map("productIdentifier") @db.VarChar(100)
+  snapshotProductId String? @map("productId")
+  snapshotProductName String? @map("productName")
+  snapshotFrameSize String? @map("frameSize")
+  quantity          Int
+  subtotal          Decimal @db.Decimal(12, 2)
+  price             Decimal @db.Decimal(12, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productIdentifier], references: [productIdentifier], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@index([productIdentifier])
+  @@map("OrderItem")
+}
+
+model Wishlist {
+  id                String   @id @default(uuid())
+  userId            String   @map("userId")
+  productIdentifier String   @map("productIdentifier") @db.VarChar(100)
+  createdAt         DateTime @default(now()) @map("createdAt") @db.Timestamp(3)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productIdentifier], references: [productIdentifier], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, productIdentifier])
+  @@index([productIdentifier])
+  @@map("wishlist")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String?          @map("userId")
+  title     String           @db.VarChar(160)
+  message   String
+  type      NotificationType
+  read      Boolean          @default(false)
+  readById  String?          @map("readBy")
+  createdAt DateTime         @default(now()) @map("date") @db.Timestamp(3)
+  updatedAt DateTime         @default(now()) @updatedAt @map("updatedAt") @db.Timestamp(3)
+
+  user   User? @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  readBy User? @relation("NotificationReadBy", fields: [readById], references: [id], onDelete: SetNull)
+
+  @@index([userId, read, createdAt])
+  @@index([type, createdAt])
+  @@index([readById])
+  @@map("notifications")
+}
+
+model NewsletterSubscriber {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String    @unique @db.VarChar(320)
+  isActive       Boolean   @default(true) @map("is_active")
+  subscribedAt   DateTime  @default(now()) @map("subscribed_at") @db.Timestamptz(6)
+  unsubscribedAt DateTime? @map("unsubscribed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, subscribedAt])
+  @@map("newsletter_subscribers")
+}
+
+model Appointment {
+  id                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName           String                 @map("first_name") @db.VarChar(50)
+  email               String                 @db.VarChar(320)
+  phoneNumber         String                 @map("phone_number") @db.VarChar(20)
+  originalBookingDate DateTime               @map("original_booking_date") @db.Timestamptz(6)
+  bookingDate         DateTime               @map("booking_date") @db.Timestamptz(6)
+  location            AppointmentLocation
+  frameTypes          String[]               @default([]) @map("frame_types")
+  otherFrameType      String?                @map("other_frame_type") @db.VarChar(250)
+  status              AppointmentStatus      @default(PENDING)
+  rescheduleReason    String?                @map("reschedule_reason") @db.VarChar(500)
+  cancellationReason  String?                @map("cancellation_reason") @db.VarChar(500)
+  emailStatus         AppointmentEmailStatus @default(PENDING) @map("email_status")
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, bookingDate])
+  @@index([location, bookingDate])
+  @@index([createdAt])
+  @@index([email])
+  @@map("appointments")
+}

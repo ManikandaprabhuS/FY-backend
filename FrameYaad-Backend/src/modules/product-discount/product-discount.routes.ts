@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { adminOnly, authenticate } from "../../middleware/auth.middleware";
+import { validateBody } from "../../middleware/validate.middleware";
+import * as controller from "./product-discount.controller";
+import { createProductDiscountSchema, updateProductDiscountSchema } from "./product-discount.schemas";
+export const productDiscountRouter = Router();
+productDiscountRouter.use(authenticate, adminOnly);
+productDiscountRouter.get("/", controller.list);
+productDiscountRouter.get("/:id", controller.get);
+productDiscountRouter.post("/", validateBody(createProductDiscountSchema), controller.create);
+productDiscountRouter.put("/:id", validateBody(updateProductDiscountSchema), controller.update);
+productDiscountRouter.delete("/:id", controller.remove);
