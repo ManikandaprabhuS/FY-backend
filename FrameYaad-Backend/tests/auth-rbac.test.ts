@@ -184,6 +184,88 @@ beforeEach(() => {
 });
 
 describe("authentication validation and RBAC", () => {
+  it("rejects public admin registration even when no admins exist", async () => {
+    mocks.userCount.mockResolvedValue(0);
+    const response = await request(app).post("/api/v1/auth/admin/register")
+      .send({ name: "New Admin", email: "new@example.com", password: "ExamplePassword1" });
+    expect(response.status).toBe(401);
+    expect(mocks.adminCreateUser).not.toHaveBeenCalled();
+  });
+
+  it.each([customer, employee])("rejects admin creation by $role", async (actor) => {
+    mocks.userFindUnique.mockResolvedValue(actor);
+    const response = await request(app).post("/api/v1/auth/admin/register")
+      .set("Authorization", "Bearer token")
+      .send({ name: "New Admin", email: "new@example.com", password: "ExamplePassword1", currentPassword: "ExamplePassword2" });
+    expect(response.status).toBe(403);
+    expect(mocks.adminCreateUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects client-supplied registration roles", async () => {
+    const response = await request(app).post("/api/v1/auth/customer/register")
+      .send({ name: "New User", email: "new@example.com", password: "ExamplePassword1", gender: "MALE", role: "ADMIN" });
+    expect(response.status).toBe(400);
+    expect(mocks.signUp).not.toHaveBeenCalled();
+  });
+
+  it("requires a correct admin password before creating an admin", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: { id: admin.id, email_confirmed_at: "2026-08-01", phone_confirmed_at: null } }, error: null });
+    mocks.userFindUnique.mockResolvedValue(admin);
+    mocks.signInWithPassword.mockResolvedValue({ data: { user: null, session: null }, error: { code: "invalid_credentials" } });
+    const response = await request(app).post("/api/v1/auth/admin/register")
+      .set("Authorization", "Bearer admin-token")
+      .send({ name: "New Admin", email: "new@example.com", password: "ExamplePassword1", currentPassword: "WrongPassword1" });
+    expect(response.status).toBe(403);
+    expect(mocks.adminCreateUser).not.toHaveBeenCalled();
+  });
+
+  it("creates an admin only after matching the authenticated admin identity", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: { id: admin.id, email_confirmed_at: "2026-08-01", phone_confirmed_at: null } }, error: null });
+    mocks.userFindUnique.mockResolvedValue(admin);
+    mocks.signInWithPassword.mockResolvedValue({ data: { user: { id: admin.id }, session: { access_token: "confirmation-token" } }, error: null });
+    mocks.adminCreateUser.mockResolvedValue({ data: { user: { id: "new-admin-id", email_confirmed_at: "2026-08-01" } }, error: null });
+    mocks.userCreate.mockResolvedValue({ ...admin, id: "new-admin-id" });
+    const response = await request(app).post("/api/v1/auth/admin/register")
+      .set("Authorization", "Bearer admin-token")
+      .send({ name: "New Admin", email: "new@example.com", password: "ExamplePassword1", currentPassword: "ExamplePassword2" });
+    expect(response.status).toBe(201);
+    expect(mocks.signInWithPassword).toHaveBeenCalledWith({ email: admin.email, password: "ExamplePassword2" });
+    const created = mocks.userCreate.mock.calls[0]?.[0] as { data: { role: UserRole; createdById: string } };
+    expect(created.data).toMatchObject({ role: UserRole.ADMIN, createdById: admin.id });
+  });
+
+  it("normalizes customer email without altering the password", async () => {
+    mocks.signInWithPassword.mockResolvedValue({ data: { session: null, user: null }, error: null });
+    const response = await request(app).post("/api/v1/auth/customer/login").send({
+      email: `  ${customer.email.toUpperCase()}  `,
+      password: " Password With Spaces1 ",
+    });
+    expect(mocks.signInWithPassword).toHaveBeenCalledWith({
+      email: customer.email.toLowerCase(), password: " Password With Spaces1 ",
+    });
+    expect(response.status).toBe(502);
+  });
+
+  it.each([
+    ["invalid_credentials", 400, 401, "INVALID_CREDENTIALS"],
+    ["unexpected_failure", 500, 502, "AUTH_PROVIDER_UNAVAILABLE"],
+  ])("distinguishes %s from other login failures", async (code, status, expectedStatus, expectedCode) => {
+    mocks.signInWithPassword.mockResolvedValue({
+      data: { session: null, user: null },
+      error: { code, status, message: "Authentication failed" },
+    });
+    const response = await request(app).post("/api/v1/auth/customer/login").send({
+      email: customer.email, password: "CustomerPassword1",
+    });
+    expect(response.status).toBe(expectedStatus);
+    expect((response.body as ErrorResponseBody).error.code).toBe(expectedCode);
+  });
+
+  it.each(["/api/v1/orders/checkout", "/api/v1/wishlist"])("rejects guest writes to %s", async (path) => {
+    const response = await request(app).post(path).send({});
+    expect(response.status).toBe(401);
+  });
+
   it("rejects malformed customer registration before calling Supabase", async () => {
     const response = await request(app).post("/api/v1/auth/customer/register").send({
       name: "A",
@@ -364,14 +446,13 @@ describe("authentication validation and RBAC", () => {
     expect((response.body as ErrorResponseBody).error.code).toBe("ACCOUNT_DEACTIVATED");
   });
 
-  it("uses a non-enumerating forgot-password response", async () => {
+  it("rejects the retired generic password-recovery endpoint", async () => {
     const response = await request(app)
       .post("/api/v1/auth/forgot-password")
       .send({ email: "someone@example.com" });
 
-    expect(response.status).toBe(202);
-    const body = response.body as { success: true; message: string };
-    expect(body.message).toContain("If an account exists");
+    expect(response.status).toBe(410);
+    expect((response.body as ErrorResponseBody).error.code).toBe("RECOVERY_PORTAL_REQUIRED");
   });
 
   it("allows an admin to create an employee account", async () => {

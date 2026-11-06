@@ -75,11 +75,9 @@ export const methodCallMessage = (method: string, path: string): string =>
 
 export const logMethodCall: RequestHandler = (request, _response, next) => {
   const message = methodCallMessage(request.method, request.path);
-  logger.info(
+  logger.debug(
     { requestId: request.requestId, httpMethod: request.method, path: request.path },
     message,
   );
-  // Required as a plain-text companion to the structured deployment logger.
-  console.log(message);
   next();
 };

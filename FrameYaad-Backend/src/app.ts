@@ -1,4 +1,5 @@
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -19,6 +20,20 @@ export const createApp = () => {
   app.use(requestId);
   app.use(pinoHttp({ logger }));
   app.use(helmet());
+  const publicCatalogPath = `${env.API_PREFIX}/products/public`;
+  // Compress public catalog JSON only; never compress tokens, OTPs or account data.
+  app.use(compression({
+    level: 4,
+    threshold: 1024,
+    filter: (request, response) => {
+      // Mounted routers temporarily strip prefixes from request.path at write time.
+      const path = request.originalUrl.split("?")[0] ?? "";
+      return request.method === "GET"
+        && (path === publicCatalogPath || path.startsWith(`${publicCatalogPath}/`))
+        && response.statusCode === 200
+        && compression.filter(request, response);
+    },
+  }));
   app.use(cors({ origin: process.env.FRONTEND_URL,
   credentials: true,}));
   app.use(express.json({ limit: "1mb" }));

@@ -7,6 +7,7 @@ import { supabaseAdmin } from "../../config/supabase";
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
+import { mapConcurrent } from "../../utils/map-concurrent";
 import { productViewSelect } from "./products.select";
 import { productListQuerySchema } from "./products.schemas";
 import type { createAdminProductPreviewSchema, createAdminVariantSchema, createProductSchema, updateAdminProductPreviewSchema, updateAdminVariantSchema, updateProductSchema } from "./products.schemas";
@@ -195,13 +196,13 @@ export const createAdminProductPreview = async (
         productName: input.name,
         materialId: material.id,
         createdById: actorId,
-        images: input.images.length > 0 ? { create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, isPrimary: index === 0 })) } : undefined,
+        images: input.images.length > 0 ? { create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, color: image.color ?? null, isPrimary: index === input.images.findIndex(candidate => !candidate.color) })) } : undefined,
       },
     });
     const variants = [];
     for (const item of input.variants) {
       variants.push(await transaction.variant.create({ data: {
-        productId: product.id, color: item.color ?? input.availableColors[0] ?? "Standard", frameSize: item.frameSize,
+        productId: product.id, imageUrl: item.imageUrl, color: item.color ?? input.availableColors[0] ?? "Standard", frameSize: item.frameSize,
         mountType: item.mountType, glassType: item.glassType, stockQuantity: item.stockQuantity,
         mrp: item.price, price: item.offerPrice ?? item.price, isActive: input.isActive, createdById: actorId,
       }}));
@@ -235,6 +236,7 @@ export const updateAdminProductPreview = async (
         where: { id: existing.variantId },
         data: {
           color: primaryVariant.color ?? undefined,
+          imageUrl: primaryVariant.imageUrl,
           frameSize: primaryVariant.frameSize,
           mountType: primaryVariant.mountType,
           glassType: primaryVariant.glassType,
@@ -256,7 +258,7 @@ export const updateAdminProductPreview = async (
           ? undefined
           : {
               deleteMany: {},
-              create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, isPrimary: index === 0 })),
+              create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, color: image.color ?? null, isPrimary: index === input.images!.findIndex(candidate => !candidate.color) })),
             },
       },
       select: productViewSelect,
@@ -269,6 +271,7 @@ export const updateAdminVariant = async (id: string, input: UpdateAdminVariantIn
     where: { id },
     data: {
       color: input.color ?? undefined,
+      imageUrl: input.imageUrl,
       frameSize: input.frameSize,
       mountType: input.mountType,
       glassType: input.glassType,
@@ -281,7 +284,7 @@ export const updateAdminVariant = async (id: string, input: UpdateAdminVariantIn
 export const createAdminVariant = async (productId: string, input: CreateAdminVariantInput, actorId: string, role: UserRole) => {
   const product = await getProduct(productId, role);
   const variant = await prisma.variant.create({ data: {
-    productId, color: input.color ?? product.material.availableColors[0] ?? "Standard", frameSize: input.frameSize,
+    productId, imageUrl: input.imageUrl, color: input.color ?? product.material.availableColors[0] ?? "Standard", frameSize: input.frameSize,
     mountType: input.mountType, glassType: input.glassType, stockQuantity: input.stockQuantity,
     mrp: input.price, price: input.offerPrice ?? input.price, createdById: actorId, isActive: product.material.isActive,
   }});
@@ -305,22 +308,24 @@ export const uploadProductImages = async (files: Express.Multer.File[]): Promise
   }
 
   const uploadedPaths: string[] = [];
+  let orderedPaths: string[];
 
   try {
-    for (const file of files) {
+    orderedPaths = await mapConcurrent(files, 3, async (file) => {
       const extension = path.extname(file.originalname).toLowerCase() ||
         (file.mimetype === "video/mp4" ? ".mp4" : ".jpg");
       const objectPath = `products/${randomUUID()}${extension}`;
       const { error } = await supabaseAdmin.storage
         .from(productImagesBucket)
-        .upload(objectPath, file.buffer, { contentType: file.mimetype, upsert: false });
+        .upload(objectPath, file.buffer, { contentType: file.mimetype, upsert: false, cacheControl: "31536000" });
 
       if (error) {
         throw new ApiError(502, "Unable to store product image", "PRODUCT_IMAGE_UPLOAD_FAILED");
       }
 
       uploadedPaths.push(objectPath);
-    }
+      return objectPath;
+    });
   } catch (error) {
     if (uploadedPaths.length > 0) {
       await supabaseAdmin.storage.from(productImagesBucket).remove(uploadedPaths);
@@ -328,7 +333,7 @@ export const uploadProductImages = async (files: Express.Multer.File[]): Promise
     throw error;
   }
 
-  return uploadedPaths.map((objectPath) =>
+  return orderedPaths.map((objectPath) =>
     supabaseAdmin.storage.from(productImagesBucket).getPublicUrl(objectPath).data.publicUrl,
   );
 };

@@ -108,7 +108,11 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
         : { orderNumber: { contains: search, mode: "insensitive" } }
       : {}),
   };
-  const [orders, total, pendingCount, processingCount, shippedCount, deliveredCount, cancelledCount] = await prisma.$transaction([
+  // One grouped count replaces six separate aggregate queries. Keep status
+  // summaries independent of the selected status, as in the original API.
+  const { status: _status, ...summaryWhere } = where;
+  void _status;
+  const [orders, statusCounts] = await prisma.$transaction([
     prisma.order.findMany({
       where,
       select: orderViewSelect,
@@ -116,23 +120,20 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.PLACED } }),
-    prisma.order.count({ where: { ...where, status: { in: [OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.READY_TO_SHIP] } } }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.SHIPPED } }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.DELIVERED } }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.CANCELLED } }),
+    prisma.order.groupBy({ by: ["status"], orderBy: { status: "asc" }, where: summaryWhere, _count: { _all: true } }),
   ]);
+  const counts = new Map(statusCounts.map(group => [group.status, typeof group._count === "object" ? group._count._all ?? 0 : 0]));
+  const total = status ? counts.get(status) ?? 0 : [...counts.values()].reduce((sum, count) => sum + count, 0);
   return {
     orders,
     pagination: paginationMeta(page, limit, total),
     summary: {
       totalCount: total,
-      pendingCount,
-      processingCount,
-      shippedCount,
-      deliveredCount,
-      cancelledCount,
+      pendingCount: counts.get(OrderStatus.PLACED) ?? 0,
+      processingCount: [OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.READY_TO_SHIP].reduce((sum, value) => sum + (counts.get(value) ?? 0), 0),
+      shippedCount: counts.get(OrderStatus.SHIPPED) ?? 0,
+      deliveredCount: counts.get(OrderStatus.DELIVERED) ?? 0,
+      cancelledCount: counts.get(OrderStatus.CANCELLED) ?? 0,
     },
   };
 };

@@ -12,19 +12,14 @@ import type { z } from "zod";
 import type {
   changePasswordSchema,
   customerRegistrationSchema,
-  forgotPasswordSchema,
   loginSchema,
-  registrationSchema,
-  resetPasswordSchema,
+  adminRegistrationSchema,
   updateOwnProfileSchema,
 } from "./auth.schemas";
 import * as authService from "./auth.service";
 
-type RegistrationBody = z.infer<typeof registrationSchema>;
 type CustomerRegistrationBody = z.infer<typeof customerRegistrationSchema>;
 type LoginBody = z.infer<typeof loginSchema>;
-type ForgotPasswordBody = z.infer<typeof forgotPasswordSchema>;
-type ResetPasswordBody = z.infer<typeof resetPasswordSchema>;
 type ChangePasswordBody = z.infer<typeof changePasswordSchema>;
 type UpdateProfileBody = z.infer<typeof updateOwnProfileSchema>;
 
@@ -47,7 +42,7 @@ export const registerCustomer: RequestHandler = async (request, response) => {
 };
 
 export const registerAdmin: RequestHandler = async (request, response) => {
-  const user = await authService.registerAdmin(request.body as RegistrationBody, request.auth?.user);
+  const user = await authService.registerAdmin(request.body as z.infer<typeof adminRegistrationSchema>, requireAuth(request).user);
   response.status(201).json({ success: true, data: { user } });
 };
 
@@ -105,19 +100,6 @@ export const updateProfile: RequestHandler = async (request, response) => {
   response.status(200).json({ success: true, data: { user } });
 };
 
-export const forgotPassword: RequestHandler = async (request, response) => {
-  await authService.requestPasswordReset((request.body as ForgotPasswordBody).email);
-  response.status(202).json({
-    success: true,
-    message: "If an account exists for that email, a password reset link has been sent",
-  });
-};
-
-export const resetPassword: RequestHandler = async (request, response) => {
-  await authService.resetPassword(request.body as ResetPasswordBody);
-  clearAuthCookies(response);
-  response.status(200).json({ success: true, message: "Password reset successfully; please log in again" });
-};
 
 export const changePassword: RequestHandler = async (request, response) => {
   const auth = requireAuth(request);

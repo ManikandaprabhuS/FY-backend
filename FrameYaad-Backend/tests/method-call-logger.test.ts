@@ -1,10 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ info: vi.fn() }));
+const mocks = vi.hoisted(() => ({ debug: vi.fn() }));
 
 vi.mock("../src/config/logger", () => ({
-  logger: { info: mocks.info },
+  logger: { debug: mocks.debug },
 }));
 
 import {
@@ -33,7 +33,7 @@ describe("API method-call logging", () => {
       .toBe("POST /future-module/action API method is calling");
   });
 
-  it("writes both structured and plain-text deployment logs", () => {
+  it("keeps structured debug context without duplicate console logs", () => {
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const request = {
       method: "POST",
@@ -44,11 +44,11 @@ describe("API method-call logging", () => {
 
     logMethodCall(request, {} as Response, next);
 
-    expect(mocks.info).toHaveBeenCalledWith(
+    expect(mocks.debug).toHaveBeenCalledWith(
       { requestId: "request-123", httpMethod: "POST", path: "/products" },
       "Product Add method is calling",
     );
-    expect(consoleLog).toHaveBeenCalledWith("Product Add method is calling");
+    expect(consoleLog).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledOnce();
   });
 });

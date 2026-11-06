@@ -29,6 +29,10 @@ export const customerRegistrationSchema = registrationSchema.extend({
   gender: z.enum(["MALE", "FEMALE"]),
 }).strict();
 
+export const adminRegistrationSchema = registrationSchema.extend({
+  currentPassword: z.string().min(1).max(72),
+}).strict();
+
 export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1).max(72),
@@ -36,9 +40,13 @@ export const loginSchema = z.object({
 
 export const forgotPasswordSchema = z.object({ email: emailSchema }).strict();
 
+export const verifyResetOtpSchema = z.object({
+  email: emailSchema,
+  otp: z.string().trim().regex(/^\d{6}$/, "Enter the six-digit code from your email"),
+}).strict();
+
 export const resetPasswordSchema = z.object({
-  accessToken: z.string().min(20),
-  refreshToken: z.string().min(20).optional(),
+  resetToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "A verified reset token is required"),
   newPassword: passwordSchema,
 }).strict();
 

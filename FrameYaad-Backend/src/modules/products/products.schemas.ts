@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 export const productIdSchema = z.string().uuid();
+const imageUrl = z.string().url().max(2048).refine(value => /^https?:\/\//i.test(value), "Use an HTTP or HTTPS image URL");
+const productImageSchema = z.object({
+  imageUrl,
+  displayOrder: z.number().int().positive(),
+  color: z.string().trim().min(1).max(80).nullable().optional(),
+}).strict();
 
 const productFields = {
   materialId: z.string().uuid(),
@@ -20,8 +26,9 @@ export const createAdminProductPreviewSchema = z.object({
   material: z.string().trim().min(2).max(120),
   availableColors: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   isActive: z.boolean().default(true),
-  images: z.array(z.object({ imageUrl: z.string().url(), displayOrder: z.number().int().positive() })).max(10).default([]),
+  images: z.array(productImageSchema).max(30).default([]),
   variants: z.array(z.object({
+    imageUrl: imageUrl.nullable().optional(),
     color: z.string().trim().min(1).max(80).optional().nullable(),
     frameSize: z.string().trim().min(1).max(80),
     mountType: z.string().trim().min(1).max(80),
@@ -33,6 +40,7 @@ export const createAdminProductPreviewSchema = z.object({
 }).strict();
 
 const adminVariantFields = {
+  imageUrl: imageUrl.nullable().optional(),
   color: z.string().trim().min(1).max(80).optional().nullable(),
   frameSize: z.string().trim().min(1).max(80).optional(),
   mountType: z.string().trim().min(1).max(80).optional(),
@@ -49,7 +57,7 @@ export const updateAdminProductPreviewSchema = z.object({
   material: z.string().trim().min(2).max(120).optional(),
   availableColors: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
   isActive: z.boolean().optional(),
-  images: z.array(z.object({ imageUrl: z.string().url(), displayOrder: z.number().int().positive() })).max(10).optional(),
+  images: z.array(productImageSchema).max(30).optional(),
   variants: z.array(z.object(adminVariantFields)).max(50).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, {
   message: "At least one product field is required",
@@ -61,6 +69,7 @@ export const updateAdminVariantSchema = z.object(adminVariantFields).strict().re
 );
 
 export const createAdminVariantSchema = z.object({
+  imageUrl: imageUrl.nullable().optional(),
   color: z.string().trim().min(1).max(80).optional().nullable(),
   frameSize: z.string().trim().min(1).max(80),
   mountType: z.string().trim().min(1).max(80),

@@ -1,6 +1,7 @@
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import type { AppointmentEmailView } from "../../modules/appointment/appointment.types";
+import { sendEmail } from "../email.service";
 
 type EmailMessage = { to: string; subject: string; html: string };
 
@@ -44,18 +45,7 @@ const deliver = async (message: EmailMessage): Promise<boolean> => {
     return false;
   }
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: env.EMAIL_FROM, ...message }),
-    });
-    if (!response.ok) {
-      logger.error({ recipient: message.to, status: response.status }, "Appointment email delivery failed");
-      return false;
-    }
+    await sendEmail(message);
     return true;
   } catch (error) {
     logger.error({ err: error, recipient: message.to }, "Appointment email request failed");

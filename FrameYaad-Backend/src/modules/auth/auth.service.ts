@@ -1,7 +1,6 @@
 import { UserRole } from "@prisma/client";
 import type { Session } from "@supabase/supabase-js";
 
-import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { createUserSupabaseClient, supabaseAdmin } from "../../config/supabase";
 import { prisma } from "../../prisma/client";
@@ -15,7 +14,7 @@ import type {
   loginSchema,
   profileFieldsSchema,
   registrationSchema,
-  resetPasswordSchema,
+  adminRegistrationSchema,
 } from "./auth.schemas";
 
 type RegistrationInput = z.infer<typeof registrationSchema>;
@@ -23,7 +22,6 @@ type CustomerRegistrationInput = z.infer<typeof customerRegistrationSchema>;
 type LoginInput = z.infer<typeof loginSchema>;
 type ProfileInput = z.infer<typeof profileFieldsSchema>;
 type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
-type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export interface AuthenticationResult {
   session: Session | null;
@@ -67,6 +65,13 @@ const createManagedUser = async (
 };
 
 export const registerCustomer = async (input: CustomerRegistrationInput): Promise<AuthenticationResult> => {
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: input.email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new ApiError(409, "An account with this email already exists", "ACCOUNT_ALREADY_EXISTS");
+  }
   const client = createUserSupabaseClient();
   const { data, error } = await client.auth.signUp({
     email: input.email,
@@ -74,8 +79,27 @@ export const registerCustomer = async (input: CustomerRegistrationInput): Promis
     options: { data: { name: input.name, gender: input.gender } },
   });
 
-  if (error || !data.user || data.user.identities?.length === 0) {
+  if (error) {
+    logger.warn({ supabaseStatus: error.status, supabaseCode: error.code }, "Supabase customer registration failed");
+    if (error.code === "user_already_exists" || error.code === "email_exists") {
+      throw new ApiError(409, "An account with this email already exists", "ACCOUNT_ALREADY_EXISTS");
+    }
+    if (error.status === 429) {
+      throw new ApiError(429, "Too many signup attempts. Please wait before trying again", "SIGNUP_RATE_LIMITED");
+    }
+    if (error.status === undefined || error.status === 0 || error.status >= 500) {
+      throw new ApiError(502, "Account creation or confirmation email delivery is temporarily unavailable. Please try again later", "SIGNUP_PROVIDER_UNAVAILABLE");
+    }
+    if (error.code === "weak_password") {
+      throw new ApiError(400, "This password does not meet the password requirements", "WEAK_PASSWORD");
+    }
+    throw new ApiError(400, "Unable to create your account. Please check your details and try again", "SIGNUP_FAILED");
+  }
+  if (data.user?.identities?.length === 0) {
     throw new ApiError(409, "An account with this email already exists", "ACCOUNT_ALREADY_EXISTS");
+  }
+  if (!data.user) {
+    throw new ApiError(502, "Account creation is temporarily unavailable. Please try again later", "SIGNUP_PROVIDER_UNAVAILABLE");
   }
   const authUser = data.user;
 
@@ -107,14 +131,32 @@ export const registerCustomer = async (input: CustomerRegistrationInput): Promis
 };
 
 export const registerAdmin = async (
-  input: RegistrationInput,
+  input: z.infer<typeof adminRegistrationSchema>,
   actor?: UserView,
 ): Promise<UserView> => {
-  const adminCount = await prisma.user.count({ where: { role: UserRole.ADMIN } });
-  if (adminCount > 0 && actor?.role !== UserRole.ADMIN) {
+  if (!actor) throw new ApiError(401, "Authentication is required", "AUTHENTICATION_REQUIRED");
+  if (actor.role !== UserRole.ADMIN || !actor.isActive) {
     throw new ApiError(403, "Only an admin can register another admin", "ADMIN_REGISTRATION_FORBIDDEN");
   }
-  return createManagedUser(input, UserRole.ADMIN, actor?.id);
+  const { data, error } = await createUserSupabaseClient().auth.signInWithPassword({
+    email: actor.email,
+    password: input.currentPassword,
+  });
+  if (error || !data.user || !data.session) {
+    if (error?.code === "invalid_credentials") {
+      throw new ApiError(403, "Admin password confirmation failed", "ADMIN_CONFIRMATION_FAILED");
+    }
+    throw new ApiError(502, "Unable to confirm admin credentials. Please try again", "AUTH_PROVIDER_UNAVAILABLE");
+  }
+  await supabaseAdmin.auth.admin.signOut(data.session.access_token, "local");
+  if (data.user.id !== actor.id) {
+    throw new ApiError(403, "Admin password confirmation failed", "ADMIN_CONFIRMATION_FAILED");
+  }
+  const { currentPassword: _currentPassword, ...registration } = input;
+  void _currentPassword;
+  const user = await createManagedUser(registration, UserRole.ADMIN, actor.id);
+  logger.info({ event: "ADMIN_ACCOUNT_CREATED", actorId: actor.id, createdUserId: user.id, createdAt: new Date().toISOString() }, "Admin account created");
+  return user;
 };
 
 export const createEmployeeAccount = (input: RegistrationInput, adminId: string): Promise<UserView> =>
@@ -125,7 +167,10 @@ export const login = async (
   expectedRole: UserRole | readonly UserRole[],
 ): Promise<AuthenticationResult> => {
   const client = createUserSupabaseClient();
-  const { data, error } = await client.auth.signInWithPassword(input);
+  const { data, error } = await client.auth.signInWithPassword({
+    email: input.email.trim().toLowerCase(),
+    password: input.password,
+  });
   if (error) {
     logger.warn(
       { supabaseStatus: error.status, supabaseCode: error.code, supabaseError: error.message },
@@ -141,7 +186,7 @@ export const login = async (
     throw new ApiError(401, "Email or password is incorrect", "INVALID_CREDENTIALS");
   }
   if (!data.session || !data.user) {
-    throw new ApiError(401, "Email or password is incorrect", "INVALID_CREDENTIALS");
+    throw new ApiError(502, "Authentication service returned an incomplete session. Please try again.", "AUTH_PROVIDER_UNAVAILABLE");
   }
 
   const user = await prisma.user.findUnique({ where: { id: data.user.id }, select: userViewSelect });
@@ -179,39 +224,6 @@ export const logout = async (accessToken?: string): Promise<void> => {
   }
 };
 
-export const requestPasswordReset = async (email: string): Promise<void> => {
-  const client = createUserSupabaseClient();
-  const { error } = await client.auth.resetPasswordForEmail(email, {
-    redirectTo: env.PASSWORD_RESET_REDIRECT_URL,
-  });
-  if (error) {
-    throw new ApiError(502, "Password reset email could not be sent", "PASSWORD_RESET_DELIVERY_FAILED");
-  }
-};
-
-export const resetPassword = async (input: ResetPasswordInput): Promise<void> => {
-  const client = createUserSupabaseClient();
-  if (input.refreshToken) {
-    const { error: sessionError } = await client.auth.setSession({
-      access_token: input.accessToken,
-      refresh_token: input.refreshToken,
-    });
-    if (sessionError) throw new ApiError(401, "Recovery session is invalid", "INVALID_RECOVERY_SESSION");
-  } else {
-    const { data, error } = await supabaseAdmin.auth.getUser(input.accessToken);
-    if (error || !data.user) throw new ApiError(401, "Recovery token is invalid", "INVALID_RECOVERY_TOKEN");
-  }
-
-  const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(input.accessToken);
-  if (userError || !userData.user) {
-    throw new ApiError(401, "Recovery token is invalid", "INVALID_RECOVERY_TOKEN");
-  }
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(userData.user.id, {
-    password: input.newPassword,
-  });
-  if (error) throw new ApiError(400, "Password could not be reset", "PASSWORD_RESET_FAILED");
-  await supabaseAdmin.auth.admin.signOut(input.accessToken, "global");
-};
 
 export const changePassword = async (
   user: UserView,

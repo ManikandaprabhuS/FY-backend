@@ -214,6 +214,7 @@ model Material {
 }
 
 model Variant {
+  imageUrl        String?
   id              String            @id @default(uuid())
   productId       String?           @map("productId")
   color           String            @db.VarChar(80)
@@ -266,6 +267,7 @@ model Product {
 }
 
 model ProductImage {
+  color             String?  @db.VarChar(80)
   id                String   @id @default(uuid())
   productIdentifier String   @map("productIdentifier") @db.VarChar(100)
   imageUrl          String   @map("imageUrl")
@@ -380,6 +382,35 @@ model Notification {
   @@index([type, createdAt])
   @@index([readById])
   @@map("notifications")
+}
+
+model PasswordRecovery {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @unique @map("user_id")
+  email           String    @db.VarChar(320)
+  portal          String    @db.VarChar(8)
+  otpHash         String?   @map("otp_hash") @db.VarChar(64)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
+  attempts        Int       @default(0)
+  requestedAt     DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+  verifiedAt      DateTime? @map("verified_at") @db.Timestamptz(6)
+  resetTokenHash  String?   @unique @map("reset_token_hash") @db.VarChar(64)
+  resetExpiresAt  DateTime? @map("reset_expires_at") @db.Timestamptz(6)
+  consumedAt      DateTime? @map("consumed_at") @db.Timestamptz(6)
+  providerEmailId String?   @map("provider_email_id")
+
+  @@index([expiresAt])
+  @@map("password_recoveries")
+}
+
+model PasswordRecoveryRate {
+  key             String   @id @db.VarChar(96)
+  requests        Int      @default(0)
+  windowExpiresAt DateTime @map("window_expires_at") @db.Timestamptz(6)
+  nextAllowedAt   DateTime @map("next_allowed_at") @db.Timestamptz(6)
+
+  @@index([windowExpiresAt])
+  @@map("password_recovery_rates")
 }
 
 model NewsletterSubscriber {
