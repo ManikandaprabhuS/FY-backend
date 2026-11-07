@@ -12,8 +12,13 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, request, respo
 
   if (error instanceof ApiError) {
     apiError = error;
+  } else if (error instanceof ZodError && error.issues.length > 0 && error.issues.every(issue => issue.path.length === 0 && issue.code === 'invalid_format' && issue.format === 'uuid')) {
+    // Controllers parse route IDs as scalar UUIDs; body/query UUID fields retain 400.
+    apiError = new ApiError(404, "Requested record was not found", "RECORD_NOT_FOUND");
   } else if (error instanceof ZodError) {
     apiError = new ApiError(400, "Request validation failed", "VALIDATION_ERROR", error.flatten());
+  } else if (error instanceof URIError && 'status' in error && error.status === 400) {
+    apiError = new ApiError(404, "Requested route was not found", "ROUTE_NOT_FOUND");
   } else if (error instanceof MulterError) {
     apiError = error.code === "LIMIT_FILE_SIZE"
       ? new ApiError(413, "Each uploaded file must be 10 MB or smaller", "FILE_TOO_LARGE")

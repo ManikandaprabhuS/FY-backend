@@ -619,3 +619,9 @@ ADMIN_EMAIL=appointments@frameyaad.com
 ```
 
 Customer templates cover request received, confirmed, rescheduled, and cancelled. The admin receives a new-request email requiring action. Completion is intentionally admin-only with no email. Focused coverage lives in `tests/appointment-rbac.test.ts` and `tests/appointment.service.test.ts`.
+
+## 404 handling
+
+Unknown API routes return generic JSON 404 without reflecting the URL. Malformed encoded paths and invalid scalar UUID path parameters return 404; body/query validation remains 400. Existing error handling hides internal stack traces and keeps server errors distinct. No schema, data, or authentication behavior changed.
+
+`npm run verify` passes: 26 test files, 251 tests, and TypeScript build. New tests cover unknown routes, malformed/undefined IDs, encoded script-like paths, long paths, and a nonexistent product UUID.
