@@ -29,17 +29,21 @@ export const listNotifications = async (userId: string, role: UserRole, rawQuery
     ...(read === undefined ? {} : { read }),
     ...(type ? { type } : {}),
   };
-  const [notifications, total] = await prisma.$transaction([
+  const [notifications, groups] = await Promise.all([
     prisma.notification.findMany({
       where,
       select: notificationSelect,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.notification.count({ where }),
+    prisma.notification.groupBy({ by: ["read"], orderBy: { read: "asc" }, where: { ...audienceWhere(userId, role), ...(type ? { type } : {}) }, _count: { _all: true } }),
   ]);
-  return { notifications, pagination: paginationMeta(page, limit, total) };
+  const counts = new Map(groups.map(group => [group.read, typeof group._count === "object" ? group._count._all ?? 0 : 0]));
+  const unreadCount = counts.get(false) ?? 0;
+  const readCount = counts.get(true) ?? 0;
+  const total = read === undefined ? unreadCount + readCount : counts.get(read) ?? 0;
+  return { notifications, pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
 };
 
 export const unreadCount = (userId: string, role: UserRole) =>

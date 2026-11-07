@@ -35,6 +35,11 @@ export const get: RequestHandler = async (request, response) => {
   response.status(200).json({ success: true, data: { order: serializeOrderView(order) } });
 };
 
+export const batch: RequestHandler = async (request, response) => {
+  const orders = await service.getOrdersBatch((request.body as { ids: string[] }).ids);
+  response.status(200).json({ success: true, data: { orders: orders.map(serializeOrderView) } });
+};
+
 export const updateStatus: RequestHandler = async (request, response) => {
   const order = await service.updateOrderStatus(
     orderIdFrom(request.params.id),

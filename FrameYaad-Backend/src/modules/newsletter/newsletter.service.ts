@@ -104,7 +104,7 @@ const whereFrom = (query: Pick<NewsletterListQuery, "search" | "status">): Prism
 export const listSubscribers = async (rawQuery: unknown) => {
   const query = newsletterListQuerySchema.parse(rawQuery);
   const where = whereFrom(query);
-  const [subscribers, filteredTotal, total, active] = await prisma.$transaction([
+  const [subscribers, filteredTotal, total, active] = await Promise.all([
     prisma.newsletterSubscriber.findMany({
       where,
       select: subscriberSelect,

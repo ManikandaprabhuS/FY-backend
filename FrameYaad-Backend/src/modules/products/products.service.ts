@@ -1,13 +1,14 @@
 import { OrderStatus, Prisma, UserRole } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import type { z } from "zod";
 
 import { supabaseAdmin } from "../../config/supabase";
 import { prisma } from "../../prisma/client";
+import { validateUpload } from "../../utils/upload-validation";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import { mapConcurrent } from "../../utils/map-concurrent";
+import { listPublicCatalog } from "./public-catalog.service";
 import { productViewSelect } from "./products.select";
 import { productListQuerySchema } from "./products.schemas";
 import type { createAdminProductPreviewSchema, createAdminVariantSchema, createProductSchema, updateAdminProductPreviewSchema, updateAdminVariantSchema, updateProductSchema } from "./products.schemas";
@@ -49,7 +50,7 @@ export const listProducts = async (rawQuery: unknown, role: UserRole) => {
     ] } : {}),
   };
 
-  const [products, total] = await prisma.$transaction([
+  const [products, total] = await Promise.all([
     prisma.product.findMany({ where, select: productViewSelect, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.product.count({ where }),
   ]);
@@ -58,18 +59,7 @@ export const listProducts = async (rawQuery: unknown, role: UserRole) => {
 };
 
 export const listPublicProducts = async (rawQuery: unknown) => {
-  const query = rawQuery && typeof rawQuery === "object"
-    ? rawQuery as Record<string, unknown>
-    : {};
-
-  const result = await listProducts({ ...query, isActive: "true" }, UserRole.CUSTOMER);
-  return {
-    ...result,
-    products: result.products.map((product) => ({
-      ...product,
-      variants: product.variants.filter((variant) => variant.isActive),
-    })),
-  };
+  return listPublicCatalog(rawQuery);
 };
 
 export const getProduct = async (id: string, role: UserRole) => {
@@ -91,7 +81,13 @@ export const getPublicProduct = async (id: string) => {
 
 export const createProduct = async (input: CreateProductInput, actorId: string) => {
   await assertActiveReferences(input.materialId, input.variantId);
-  return prisma.product.create({ data: { ...input, createdById: actorId }, select: productViewSelect });
+  const { images, ...product } = input;
+  const primaryIndex = images.findIndex(image => !image.color);
+  // Prisma nested creation is atomic: no product is saved without its images.
+  return prisma.product.create({ data: {
+    ...product, createdById: actorId,
+    images: { create: images.map((image, index) => ({ imageUrl: image.imageUrl, color: image.color ?? null, isPrimary: index === primaryIndex })) },
+  }, select: productViewSelect });
 };
 
 export const updateProduct = async (id: string, input: UpdateProductInput, role: UserRole) => {
@@ -199,14 +195,13 @@ export const createAdminProductPreview = async (
         images: input.images.length > 0 ? { create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, color: image.color ?? null, isPrimary: index === input.images.findIndex(candidate => !candidate.color) })) } : undefined,
       },
     });
-    const variants = [];
-    for (const item of input.variants) {
-      variants.push(await transaction.variant.create({ data: {
+    const variants = input.variants.map(item => ({
+        id: randomUUID(),
         productId: product.id, imageUrl: item.imageUrl, color: item.color ?? input.availableColors[0] ?? "Standard", frameSize: item.frameSize,
         mountType: item.mountType, glassType: item.glassType, stockQuantity: item.stockQuantity,
         mrp: item.price, price: item.offerPrice ?? item.price, isActive: input.isActive, createdById: actorId,
-      }}));
-    }
+    }));
+    await transaction.variant.createMany({ data: variants });
     return transaction.product.update({ where: { id: product.id }, data: { variantId: variants[0]!.id }, select: productViewSelect });
   }, { maxWait: 10000, timeout: 30000 });
 };
@@ -307,13 +302,14 @@ export const uploadProductImages = async (files: Express.Multer.File[]): Promise
     throw new ApiError(400, "At least one image file is required", "PRODUCT_IMAGES_REQUIRED");
   }
 
+  files.forEach(validateUpload);
+
   const uploadedPaths: string[] = [];
   let orderedPaths: string[];
 
   try {
     orderedPaths = await mapConcurrent(files, 3, async (file) => {
-      const extension = path.extname(file.originalname).toLowerCase() ||
-        (file.mimetype === "video/mp4" ? ".mp4" : ".jpg");
+      const extension = ({ "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "video/mp4": ".mp4" } as Record<string, string>)[file.mimetype]!;
       const objectPath = `products/${randomUUID()}${extension}`;
       const { error } = await supabaseAdmin.storage
         .from(productImagesBucket)

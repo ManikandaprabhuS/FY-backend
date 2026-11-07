@@ -30,7 +30,7 @@ export const listEmployees = async (rawQuery: unknown) => {
         }
       : {}),
   };
-  const [employees, total] = await prisma.$transaction([
+  const [employees, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: userViewSelect,

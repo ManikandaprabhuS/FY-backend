@@ -19,6 +19,7 @@
     { "key": "variantId", "value": "PASTE_ACTIVE_VARIANT_UUID" },
     { "key": "productId", "value": "" },
     { "key": "productIdentifier", "value": "FRAME-001" },
+    { "key": "productImageUrl", "value": "" },
     { "key": "addressId", "value": "" },
     { "key": "cartItemId", "value": "" },
     { "key": "orderId", "value": "" },
@@ -323,7 +324,7 @@
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"materialId\": \"{{materialId}}\",\n  \"variantId\": \"{{variantId}}\",\n  \"productIdentifier\": \"FRAME-001\",\n  \"productName\": \"Classic Frame\"\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"materialId\": \"{{materialId}}\",\n  \"variantId\": \"{{variantId}}\",\n  \"productIdentifier\": \"FRAME-001\",\n  \"productName\": \"Classic Frame\",\n  \"images\": [{\"imageUrl\": \"{{productImageUrl}}\", \"displayOrder\": 1}]\n}" },
             "url": "{{baseUrl}}/products"
           },
           "event": [{ "listen": "test", "script": { "exec": ["pm.test('Product created', () => pm.response.to.have.status(201));", "const json = pm.response.json(); if (json.data?.product?.id) pm.collectionVariables.set('productId', json.data.product.id);"] } }]

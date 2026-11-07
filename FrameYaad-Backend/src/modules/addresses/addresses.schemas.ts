@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneSchema } from "../../utils/input-schemas";
 
 export const addressIdSchema = z.string().uuid();
 
@@ -9,7 +10,7 @@ const addressFields = {
   state: z.string().trim().min(2).max(100),
   country: z.string().trim().min(2).max(100),
   contactPerson: z.string().trim().min(2).max(120),
-  contactNumber: z.string().trim().min(7).max(20),
+  contactNumber: phoneSchema,
 };
 
 export const createAddressSchema = z.object(addressFields).strict();

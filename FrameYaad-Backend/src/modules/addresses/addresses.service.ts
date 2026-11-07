@@ -2,13 +2,20 @@ import type { z } from "zod";
 
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
+import { parsePagination, paginationMeta } from "../../utils/pagination";
 import type { createAddressSchema, updateAddressSchema } from "./addresses.schemas";
 
 type CreateAddressInput = z.infer<typeof createAddressSchema>;
 type UpdateAddressInput = z.infer<typeof updateAddressSchema>;
 
-export const listAddresses = (userId: string) =>
-  prisma.userAddress.findMany({ where: { userId }, orderBy: { id: "asc" } });
+export const listAddresses = async (userId: string, rawQuery: unknown = {}) => {
+  const { page, limit } = parsePagination(rawQuery);
+  const [addresses, total] = await Promise.all([
+    prisma.userAddress.findMany({ where: { userId }, orderBy: { id: "asc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.userAddress.count({ where: { userId } }),
+  ]);
+  return { addresses, pagination: paginationMeta(page, limit, total) };
+};
 
 export const getAddress = async (id: string, userId: string) => {
   const address = await prisma.userAddress.findFirst({ where: { id, userId } });

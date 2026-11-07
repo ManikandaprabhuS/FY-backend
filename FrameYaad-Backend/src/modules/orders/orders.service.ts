@@ -22,6 +22,10 @@ const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   CANCELLED: [],
 };
 
+export const getOrdersBatch = (ids: string[]) => prisma.order.findMany({
+  where: { id: { in: [...new Set(ids)] } }, select: orderViewSelect,
+});
+
 const orderNumber = async (): Promise<string> => {
   while (true) {
     const candidate = `FY-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -112,7 +116,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
   // summaries independent of the selected status, as in the original API.
   const { status: _status, ...summaryWhere } = where;
   void _status;
-  const [orders, statusCounts] = await prisma.$transaction([
+  const [orders, statusCounts] = await Promise.all([
     prisma.order.findMany({
       where,
       select: orderViewSelect,

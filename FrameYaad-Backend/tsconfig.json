@@ -19,6 +19,8 @@
   "include": [
     "src/**/*.ts",
     "tests/**/*.ts",
+    "prisma/audit-query-timings.ts",
+    "prisma/audit-duplicates.ts",
     "vitest.config.mts"
   ],
   "exclude": [

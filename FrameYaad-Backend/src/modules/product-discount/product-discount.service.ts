@@ -27,7 +27,7 @@ export const list = async (rawQuery: unknown) => {
     ...(query.productVariantId ? { productVariantId: query.productVariantId } : {}),
     ...(query.couponId ? { couponId: query.couponId } : {}),
   };
-  const [assignments, total] = await prisma.$transaction([
+  const [assignments, total] = await Promise.all([
     prisma.productDiscount.findMany({ where, select, orderBy: { createdAt: "desc" }, skip: (query.page - 1) * query.limit, take: query.limit }),
     prisma.productDiscount.count({ where }),
   ]);

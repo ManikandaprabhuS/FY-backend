@@ -16,8 +16,8 @@ const userIdFrom = (request: Parameters<RequestHandler>[0]): string => {
 const addressIdFrom = (value: unknown): string => addressIdSchema.parse(value);
 
 export const list: RequestHandler = async (request, response) => {
-  const addresses = await service.listAddresses(userIdFrom(request));
-  response.status(200).json({ success: true, data: { addresses } });
+  const data = await service.listAddresses(userIdFrom(request), request.query);
+  response.status(200).json({ success: true, data });
 };
 
 export const get: RequestHandler = async (request, response) => {

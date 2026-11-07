@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   checkout: vi.fn(),
   listOrders: vi.fn(),
   getOrder: vi.fn(),
+  getOrdersBatch: vi.fn(),
   updateOrderStatus: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ vi.mock("../src/modules/orders/orders.service", () => ({
   checkout: mocks.checkout,
   listOrders: mocks.listOrders,
   getOrder: mocks.getOrder,
+  getOrdersBatch: mocks.getOrdersBatch,
   updateOrderStatus: mocks.updateOrderStatus,
 }));
 
@@ -117,10 +119,24 @@ beforeEach(() => {
   mocks.checkout.mockResolvedValue(order);
   mocks.listOrders.mockResolvedValue({ orders: [order], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
   mocks.getOrder.mockResolvedValue(order);
+  mocks.getOrdersBatch.mockResolvedValue([order]);
   mocks.updateOrderStatus.mockResolvedValue({ ...order, status: OrderStatus.CONFIRMED });
 });
 
 describe("cart ownership and order RBAC", () => {
+  it("rejects customer access to order batches", async () => {
+    const response = await request(app).post("/api/v1/orders/batch").set("Authorization", "Bearer customer-token").send({ ids: [orderId] });
+    expect(response.status).toBe(403);
+    expect(mocks.getOrdersBatch).not.toHaveBeenCalled();
+  });
+  it("allows bounded staff order batches and rejects oversized batches", async () => {
+    authenticateAs(UserRole.EMPLOYEE);
+    const valid = await request(app).post("/api/v1/orders/batch").set("Authorization", "Bearer employee-token").send({ ids: [orderId] });
+    expect(valid.status).toBe(200);
+    expect(mocks.getOrdersBatch).toHaveBeenCalledWith([orderId]);
+    const invalid = await request(app).post("/api/v1/orders/batch").set("Authorization", "Bearer employee-token").send({ ids: Array.from({ length: 101 }, () => orderId) });
+    expect(invalid.status).toBe(400);
+  });
   it("rejects unauthenticated cart access", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: new Error("invalid") });
     const response = await request(app).get("/api/v1/cart");

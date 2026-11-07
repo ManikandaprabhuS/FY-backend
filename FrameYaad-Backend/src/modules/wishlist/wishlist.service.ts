@@ -2,6 +2,7 @@ import type { z } from "zod";
 
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
+import { parsePagination, paginationMeta } from "../../utils/pagination";
 import { productViewSelect } from "../products/products.select";
 import type { addWishlistItemSchema } from "./wishlist.schemas";
 
@@ -15,18 +16,26 @@ const wishlistSelect = {
   product: { select: productViewSelect },
 } as const;
 
-export const listWishlist = (userId: string) =>
-  prisma.wishlist.findMany({
+export const listWishlist = async (userId: string, rawQuery: unknown = {}) => {
+  const { page, limit } = parsePagination(rawQuery);
+  const [wishlist, total] = await Promise.all([prisma.wishlist.findMany({
     where: { userId },
     select: wishlistSelect,
-    orderBy: { createdAt: "desc" },
-  });
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (page - 1) * limit, take: limit,
+  }), prisma.wishlist.count({ where: { userId } })]);
+  return { wishlist, pagination: paginationMeta(page, limit, total) };
+};
 
-export const getWishlistAnalytics = async () => {
+export const lookupWishlist = (userId: string, identifiers: string[]) => prisma.wishlist.findMany({
+  where: { userId, productIdentifier: { in: identifiers } }, select: { id: true, productIdentifier: true },
+});
+
+export const getWishlistAnalytics = async (rawQuery: unknown = {}) => {
+  const { page, limit } = parsePagination(rawQuery);
   const counts = await prisma.wishlist.groupBy({
     by: ["productIdentifier"],
     _count: { userId: true },
-    orderBy: { _count: { userId: "desc" } },
+    orderBy: [{ _count: { userId: "desc" } }, { productIdentifier: "asc" }], skip: (page - 1) * limit, take: limit,
   });
 
   const products = await prisma.product.findMany({
@@ -35,11 +44,12 @@ export const getWishlistAnalytics = async () => {
   });
   const names = new Map(products.map((product) => [product.productIdentifier, product.productName]));
 
-  return counts.map((item) => ({
+  const total = await prisma.product.count({ where: { wishlistItems: { some: {} } } });
+  return { products: counts.map((item) => ({
     productIdentifier: item.productIdentifier,
     productName: names.get(item.productIdentifier) ?? item.productIdentifier,
     wishlistUserCount: item._count.userId,
-  }));
+  })), pagination: paginationMeta(page, limit, total) };
 };
 
 export const addWishlistItem = async (userId: string, input: AddWishlistItemInput) => {

@@ -2,11 +2,12 @@ import { AppointmentLocation, AppointmentStatus } from "@prisma/client";
 import { z } from "zod";
 
 import { appointmentFrameTypes } from "./appointment.types";
+import { inputDateSchema, plainText } from "../../utils/input-schemas";
 
 const cleanText = (maximum: number) =>
   z.string().trim().max(maximum).transform((value) => value.replace(/<[^>]*>/g, "").trim());
 
-const futureDate = z.coerce.date().refine(
+const futureDate = inputDateSchema.refine(
   (value) => value.getTime() > Date.now(),
   "Booking date must be in the future",
 );
@@ -17,7 +18,7 @@ const indianPhone = z.string().trim().transform((value) => value.replace(/[\s()-
 );
 
 export const createAppointmentSchema = z.object({
-  firstName: z.string().trim().min(2).max(50),
+  firstName: plainText(2, 50),
   email: z.string().trim().toLowerCase().email().max(320),
   phoneNumber: indianPhone,
   bookingDate: futureDate,
@@ -53,7 +54,7 @@ export const updateAppointmentStatusSchema = z.discriminatedUnion("status", [
 export const appointmentIdSchema = z.string().uuid();
 
 export const appointmentListQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(100).optional(),
   status: z.nativeEnum(AppointmentStatus).optional(),

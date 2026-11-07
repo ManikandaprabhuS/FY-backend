@@ -5,6 +5,7 @@ import multer from "multer";
 import { authenticate, authorize } from "../../middleware/auth.middleware";
 import { validateBody } from "../../middleware/validate.middleware";
 import * as controller from "./products.controller";
+import { ApiError } from "../../utils/api-error";
 import { createAdminProductPreviewSchema, createAdminVariantSchema, createProductSchema, updateAdminProductPreviewSchema, updateAdminVariantSchema, updateProductSchema } from "./products.schemas";
 
 export const productsRouter = Router();
@@ -14,7 +15,11 @@ const imageUpload = multer({
   limits: { files: 10, fileSize: 10 * 1024 * 1024 },
   fileFilter: (_request, file, callback) => {
     const supportedTypes = ["image/jpeg", "image/png", "image/webp", "video/mp4"];
-    callback(null, supportedTypes.includes(file.mimetype));
+    if (!supportedTypes.includes(file.mimetype)) {
+      callback(new ApiError(415, "Upload a JPG, PNG, WebP image or MP4 video", "UNSUPPORTED_FILE_TYPE"));
+      return;
+    }
+    callback(null, true);
   },
 });
 

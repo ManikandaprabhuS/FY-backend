@@ -97,7 +97,7 @@ const listWhere = (query: ReturnType<typeof appointmentListQuerySchema.parse>): 
 export const listAppointments = async (rawQuery: unknown) => {
   const query = appointmentListQuerySchema.parse(rawQuery);
   const where = listWhere(query);
-  const [appointments, total] = await prisma.$transaction([
+  const [appointments, total] = await Promise.all([
     prisma.appointment.findMany({
       where,
       select: appointmentSelect,

@@ -26,7 +26,9 @@ describe("grouped order summaries", () => {
     const result = await listOrders({}, "admin-id", UserRole.ADMIN);
     expect(result.summary).toEqual({ totalCount: 20, pendingCount: 2, processingCount: 12, shippedCount: 0, deliveredCount: 6, cancelledCount: 0 });
     expect(result.pagination.total).toBe(20);
-    expect(mocks.transaction.mock.calls[0]?.[0] as unknown[]).toHaveLength(2);
+    expect(mocks.findMany).toHaveBeenCalledTimes(1);
+    expect(mocks.groupBy).toHaveBeenCalledTimes(1);
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it("retains customer ownership, search and status-filter semantics", async () => {

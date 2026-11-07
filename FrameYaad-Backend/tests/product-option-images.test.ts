@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createAdminProductPreviewSchema, createAdminVariantSchema, updateAdminVariantSchema } from "../src/modules/products/products.schemas";
 
 const variant = { frameSize: "5x5", mountType: "NONE", glassType: "NONE", price: 100, stockQuantity: 2 };
-const product = { name: "Test frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"], variants: [variant] };
+const product = { name: "Test frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"], variants: [variant], images: [{ imageUrl: "https://example.com/default.png", displayOrder: 1 }] };
 
 describe("optional product option images", () => {
-  it("keeps legacy products and variants valid without images", () => {
+  it("keeps color and variant images optional while requiring a default product image", () => {
     expect(createAdminProductPreviewSchema.safeParse(product).success).toBe(true);
     expect(createAdminVariantSchema.safeParse(variant).success).toBe(true);
   });

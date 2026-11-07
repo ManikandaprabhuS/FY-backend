@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { MINIMUM_PASSWORD_LENGTH } from "../../constants/auth";
+import { phoneSchema, plainText } from "../../utils/input-schemas";
 
 export const emailSchema = z.string().trim().toLowerCase().email().max(320);
 export const passwordSchema = z.string().min(MINIMUM_PASSWORD_LENGTH).max(72);
@@ -8,8 +9,8 @@ export const passwordSchema = z.string().min(MINIMUM_PASSWORD_LENGTH).max(72);
 const optionalText = (maximum: number) => z.string().trim().min(1).max(maximum).nullable().optional();
 
 export const profileFieldsSchema = z.object({
-  name: z.string().trim().min(2).max(120).optional(),
-  phoneNumber: z.string().trim().min(7).max(20).nullable().optional(),
+  name: plainText(2, 120).optional(),
+  phoneNumber: phoneSchema.nullable().optional(),
   addressLine: optionalText(255),
   postalCode: optionalText(20),
   city: optionalText(100),
@@ -19,10 +20,10 @@ export const profileFieldsSchema = z.object({
 }).strict();
 
 export const registrationSchema = z.object({
-  name: z.string().trim().min(2).max(120),
+  name: plainText(2, 120),
   email: emailSchema,
   password: passwordSchema,
-  phoneNumber: z.string().trim().min(7).max(20).optional(),
+  phoneNumber: phoneSchema.optional(),
 }).strict();
 
 export const customerRegistrationSchema = registrationSchema.extend({

@@ -17,5 +17,6 @@ wishlistRouter.get(
 
 wishlistRouter.use(authenticate, authorize(UserRole.CUSTOMER));
 wishlistRouter.get("/", controller.list);
+wishlistRouter.post("/lookup", controller.lookup);
 wishlistRouter.post("/", validateBody(addWishlistItemSchema), controller.add);
 wishlistRouter.delete("/:id", controller.remove);

@@ -3,7 +3,7 @@ import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import { logger } from "../../config/logger";
-import { couponListQuerySchema, type CreateCouponInput, type UpdateCouponInput, type ValidateCouponInput } from "./coupon.schemas";
+import { createCouponSchema, couponListQuerySchema, type CreateCouponInput, type UpdateCouponInput, type ValidateCouponInput } from "./coupon.schemas";
 import { couponViewSelect } from "./coupon.select";
 
 const validateRules = (input: CreateCouponInput | UpdateCouponInput) => {
@@ -18,7 +18,7 @@ export const listCoupons = async (rawQuery: unknown) => {
     ...(query.isActive === undefined ? {} : { isActive: query.isActive }),
   };
   const orderBy = { [query.sortBy]: query.sortOrder } as Prisma.CouponOrderByWithRelationInput;
-  const [coupons, total] = await prisma.$transaction([
+  const [coupons, total] = await Promise.all([
     prisma.coupon.findMany({ where, select: couponViewSelect, orderBy, skip: (query.page - 1) * query.limit, take: query.limit }),
     prisma.coupon.count({ where }),
   ]);
@@ -112,7 +112,9 @@ export const createCoupon = async (input: CreateCouponInput, actorId: string) =>
 };
 
 export const updateCoupon = async (id: string, input: UpdateCouponInput) => {
-  await getCoupon(id); validateRules(input);
+  const existing = await getCoupon(id);
+  createCouponSchema.parse({ ...existing, ...input, discountValue: Number(input.discountValue ?? existing.discountValue), minimumOrderValue: Number(input.minimumOrderValue ?? existing.minimumOrderValue) });
+  validateRules(input);
   const coupon = await prisma.coupon.update({ where: { id }, data: { ...input, ...(input.code ? { code: input.code.toUpperCase() } : {}) }, select: couponViewSelect });
   logger.info({ couponId: id }, "Coupon Updated");
   return coupon;

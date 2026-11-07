@@ -80,14 +80,14 @@ const authenticateAs = (role: UserRole): void => {
 beforeEach(() => {
   vi.clearAllMocks();
   authenticateAs(UserRole.CUSTOMER);
-  mocks.listWishlist.mockResolvedValue([]);
-  mocks.getWishlistAnalytics.mockResolvedValue([
+  mocks.listWishlist.mockResolvedValue({ wishlist: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } });
+  mocks.getWishlistAnalytics.mockResolvedValue({ products: [
     {
       productIdentifier: "FRAME-001",
       productName: "Modern Family Frame",
       wishlistUserCount: 20,
     },
-  ]);
+  ], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
   mocks.addWishlistItem.mockResolvedValue({ id: wishlistId, productIdentifier: "FRAME-001" });
   mocks.removeWishlistItem.mockResolvedValue(undefined);
   mocks.listNotifications.mockResolvedValue({

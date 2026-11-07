@@ -1,5 +1,6 @@
 import { OrderStatus } from "@prisma/client";
 import { z } from "zod";
+export const orderBatchSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }).strict();
 
 export const orderIdSchema = z.string().uuid();
 export const checkoutSchema = z.object({
@@ -11,7 +12,7 @@ export const updateOrderStatusSchema = z.object({
   remark: z.string().trim().max(500).nullable().optional(),
 }).strict();
 export const orderListQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.nativeEnum(OrderStatus).optional(),
   userId: z.string().uuid().optional(),

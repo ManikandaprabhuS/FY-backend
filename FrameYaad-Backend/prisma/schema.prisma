@@ -126,6 +126,7 @@ model User {
 
   @@index([createdById])
   @@index([role, isActive])
+  @@index([role, createdAt(sort: Desc)])
   @@map("users")
 }
 
@@ -156,6 +157,7 @@ model Coupon {
 
   @@index([isActive, startDate, endDate])
   @@index([couponType])
+  @@index([createdAt(sort: Desc)])
   @@map("coupon")
 }
 
@@ -263,6 +265,7 @@ model Product {
   @@index([variantId])
   @@index([createdById])
   @@index([productName])
+  @@index([createdAt(sort: Desc)])
   @@map("Product")
 }
 
@@ -325,8 +328,9 @@ model Order {
   userAddress UserAddress @relation(fields: [userAddressId], references: [id], onDelete: Restrict)
   items       OrderItem[]
 
-  @@index([userId, createdAt])
-  @@index([status, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
   @@index([userAddressId])
   @@map("Order")
 }
@@ -361,6 +365,7 @@ model Wishlist {
 
   @@unique([userId, productIdentifier])
   @@index([productIdentifier])
+  @@index([userId, createdAt(sort: Desc), id])
   @@map("wishlist")
 }
 
@@ -378,7 +383,8 @@ model Notification {
   user   User? @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   readBy User? @relation("NotificationReadBy", fields: [readById], references: [id], onDelete: SetNull)
 
-  @@index([userId, read, createdAt])
+  @@index([userId, createdAt(sort: Desc)], map: "notifications_userId_date_idx")
+  @@index([userId, read, createdAt(sort: Desc)], map: "notifications_userId_read_date_idx")
   @@index([type, createdAt])
   @@index([readById])
   @@map("notifications")

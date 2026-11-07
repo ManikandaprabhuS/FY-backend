@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 
-import { userIdSchema } from "./users.schemas";
+import { customerPhoneLookupSchema, userIdSchema } from "./users.schemas";
 import type { z } from "zod";
 import type { adminUpdateUserSchema } from "./users.schemas";
 import * as usersService from "./users.service";
@@ -8,6 +8,11 @@ import * as usersService from "./users.service";
 type UpdateUserBody = z.infer<typeof adminUpdateUserSchema>;
 
 const idFrom = (value: unknown) => userIdSchema.parse(value);
+export const lookupCustomerByPhone: RequestHandler = async (request, response) => {
+  const { phone } = customerPhoneLookupSchema.parse(request.query);
+  const customer = await usersService.lookupCustomerByPhone(phone);
+  response.status(200).json({ success: true, data: { customer } });
+};
 
 export const listCustomers: RequestHandler = async (request, response) => {
   const data = await usersService.listCustomers(request.query);

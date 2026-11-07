@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   productDelete: vi.fn(),
   productCount: vi.fn(),
   orderItemFindMany: vi.fn(),
+  orderFindMany: vi.fn(),
   cartItemCount: vi.fn(),
   materialFindUnique: vi.fn(),
   variantFindUnique: vi.fn(),
@@ -76,6 +77,7 @@ vi.mock("../src/prisma/client", () => ({
       count: mocks.productCount,
     },
     orderItem: { findMany: mocks.orderItemFindMany },
+    order: { findMany: mocks.orderFindMany },
     cartItem: { count: mocks.cartItemCount },
     material: { findUnique: mocks.materialFindUnique },
     variant: { findUnique: mocks.variantFindUnique },
@@ -385,7 +387,8 @@ describe("authentication validation and RBAC", () => {
   });
 
   it("allows an employee to access customer management", async () => {
-    mocks.transaction.mockResolvedValue([[], 0]);
+    mocks.userFindMany.mockResolvedValue([]);
+    mocks.userCount.mockResolvedValue(0);
     const response = await request(app)
       .get("/api/v1/users")
       .set("Authorization", "Bearer employee-access-token");
@@ -518,7 +521,8 @@ describe("product CRUD RBAC", () => {
       error: null,
     });
     mocks.userFindUnique.mockResolvedValue(customer);
-    mocks.transaction.mockResolvedValue([[product], 1]);
+    mocks.productFindMany.mockResolvedValue([product]);
+    mocks.productCount.mockResolvedValue(1);
 
     const response = await request(app)
       .get("/api/v1/products")
@@ -550,12 +554,19 @@ describe("product CRUD RBAC", () => {
     const response = await request(app)
       .post("/api/v1/products")
       .set("Authorization", "Bearer employee-access-token")
-      .send({ materialId, variantId, productIdentifier: "FRAME-001", productName: "Classic Frame" });
+      .send({ materialId, variantId, productIdentifier: "FRAME-001", productName: "Classic Frame", images: [{ imageUrl: "https://example.com/frame.png", displayOrder: 1 }] });
 
     expect(response.status).toBe(201);
     const createCall = mocks.productCreate.mock.calls[0] as unknown[] | undefined;
     const createArguments = createCall?.[0] as { data: { createdById: string } } | undefined;
     expect(createArguments?.data.createdById).toBe(employee.id);
+  });
+
+  it.each([{}, { images: [] }, { images: [{ imageUrl: "https://example.com/black.png", displayOrder: 1, color: "Black" }] }])("rejects legacy product creation without a default image", async (imageFields) => {
+    const response = await request(app).post("/api/v1/products").set("Authorization", "Bearer employee-access-token")
+      .send({ materialId, variantId, productIdentifier: "FRAME-NEW", productName: "Example Frame", ...imageFields });
+    expect(response.status).toBe(400);
+    expect(mocks.productCreate).not.toHaveBeenCalled();
   });
 
   it("rejects product creation with an inactive material", async () => {
@@ -564,7 +575,7 @@ describe("product CRUD RBAC", () => {
     const response = await request(app)
       .post("/api/v1/products")
       .set("Authorization", "Bearer employee-access-token")
-      .send({ materialId, variantId, productIdentifier: "FRAME-002", productName: "Modern Frame" });
+      .send({ materialId, variantId, productIdentifier: "FRAME-002", productName: "Modern Frame", images: [{ imageUrl: "https://example.com/frame.png", displayOrder: 1 }] });
 
     expect(response.status).toBe(409);
     expect((response.body as ErrorResponseBody).error.code).toBe("MATERIAL_INACTIVE");

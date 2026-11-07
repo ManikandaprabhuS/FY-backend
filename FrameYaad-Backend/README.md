@@ -1,5 +1,178 @@
 # FrameYaad Backend
 
+## Audit Log — Incremental application audit (6 November 2026)
+
+Work is performed in the requested order. A task is checked only after its code and validation are complete. Previous performance work is documented separately in `docs/performance-audit.md`; its results are not substituted for this audit's before/after tests.
+
+- [x] 1. Pagination — bounded list APIs and customer/admin page controls verified
+- [x] 2. Database indexes — live indexes verified valid
+- [x] 3. Query optimization — bounded phone lookup and parallel detail reads
+- [x] 4. N+1 queries — variant writes and customer-report reads batched
+- [x] 5. Query execution time — measured; residual latency risks documented
+- [x] 6. Error handling — global status mapping and client messages verified
+- [x] 7. Invalid input testing — baseline matrix and regression tests
+- [x] 8. Empty field checks — required fields and PATCH omission semantics tested
+- [x] 9. Duplicate scan — zero conflicts; no deletion required
+- [x] 10. Admin field validation — current forms and approved legacy image requirement verified
+
+### Task 1 — Pagination
+
+Checked: catalog, orders, customers, employees, coupons, product discounts, notifications, wishlist, wishlist analytics, appointments, newsletter, addresses, nested order histories and reference selectors.
+
+Found: primary admin list APIs already have page/limit/total metadata (generally default 20, maximum 100). Customer catalog UI only downloaded the first 50 products and filtered/paginated those locally; wishlist and its analytics were unbounded; notifications UI only exposed the first 100 records. Saved-heart state must not be inferred solely from the first wishlist page. Nested order histories were paginated; reference-selector limitations are recorded below.
+
+Changes so far: true public catalog pages with server-side filtering/sorting and global facet counts; bounded wishlist and analytics pages; wishlist Load more plus a bounded customer-owned heart-state lookup (maximum 100 identifiers); paged notification UI with global read/unread counts. Existing routes and response collection fields are retained; pagination/facet/summary metadata is additive.
+
+Validation: 152 backend tests passed; backend TypeScript/lint and frontend builds passed. The configured four-product test catalog returned two distinct pages at limit=2, total=4, totalPages=2; a nonexistent material returned total=0. Tests simulate 55 products to verify pages beyond the former 50-product cap, reject page=0/negative/fractional and limit=0/negative/101/NaN, and verify wishlist owner scoping and the 100-identifier lookup bound. No database records were modified for these checks.
+
+| List/view | Before | After |
+| --- | --- | --- |
+| Customer catalog | First 50 only; local filtering/sorting and 12-card slices | Server pages of 12, accurate collection-wide filters/facets/sort and totals; API default 20/max 100 |
+| Customer wishlist | Unbounded full collection | 20-item pages, Load more, server total; heart-state lookup separately bounded to 100 visible identifiers |
+| Admin wishlist analytics | Unbounded groups | Default 20/max 100 groups with total and Previous/Next controls |
+| Admin notifications | UI exposed first 100 only | 20-item server pages with global All/Read/Unread counts and matching filters |
+| Customer detail order history | First 100 only | 10-item server pages; total order count/spend/last-order KPI values come from complete server aggregates |
+| Address collection | Unbounded | Default 20/max 100 with additive pagination metadata; no existing frontend address-list view consumes this endpoint |
+| Products/orders/customers/employees/coupons/discounts/appointments/newsletter admin lists | Existing bounded APIs and page controls | Retained; general API defaults 20/max 100, existing view page sizes retained |
+
+Scope notes: transactional cart aggregates and explicit full CSV exports must preserve their complete contents and are not silently truncated. Customer Orders is currently a placeholder, not an implemented history view. Reference dropdowns retain their existing maximum-100 API reads; making them searchable across larger reference datasets is tracked as a remaining usability risk, not a claim that all records are currently rendered. Legacy customer-list order summaries remain compatible; their query/payload cost is reviewed in Task 3.
+
+Data safety: no audit data deletion has been performed. Task 9 must produce a backup and a documented record list before any cleanup; duplicate-looking names alone are not treated as proof that records should be merged.
+
+### Task 2 — Database indexes
+
+Checked the live public-schema index catalog against observed Prisma/raw query filters, joins and ordering. Several indexes declared in Prisma were absent from this database. Existing primary keys and unique email, phone, employee ID, product identifier (SKU), coupon-code and cart/wishlist membership constraints were retained.
+
+Applied 22 additive indexes using `prisma/compatibility/005_audit_query_indexes.sql`, with `CONCURRENTLY` outside transactions. Reasons are documented next to every statement: role/date staff lists; owner/status/date order queues; order-item/product/material/variant/image joins; owner-scoped addresses and notifications; wishlist paging/analytics; reverse product references; coupon ordering. Three expression unique indexes prevent normalized email, coupon-code and per-product color-image duplicates. Read-only conflict checks found zero conflicting groups for these three keys before creation. Product names are deliberately not unique because multiple legitimate products may share a display name.
+
+Result: all 22 requested indexes exist and are valid (`pg_index.indisvalid=true`); no invalid public indexes were found. No rows were deleted or modified. Ordinary new index definitions are reflected in Prisma; expression/partial indexes remain documented SQL because Prisma cannot fully model them. This was an additive index script, not a generated Prisma migration. Query timing improvements are measured separately in Task 5; index presence alone is not a latency claim.
+
+### Task 3 — Query optimization
+
+Checked list/detail selects, catalog hydration, customer search, order summaries and reference reads. Existing list queries mostly select explicit view fields, and independent count/list queries are already paired. Found customer phone search could fan out to every remaining customer page, download private profiles and order summaries, and still miss formatted numbers on page 1. Replaced it with one staff-authenticated, validated, parameterized phone lookup returning only id/name/phone, at most one customer. Local and country-code suffix matching is retained. Customer detail profile and order aggregates now execute concurrently rather than sequentially.
+
+Measured structural result: phone lookup is exactly one bounded query/request instead of a potentially collection-sized request fan-out; tests verify bound, CUSTOMER role, parameter binding, normalization and 404. Backend lint/typecheck and all 155 tests pass; frontend production build passes. No settled authorization caching was added. Customer-list order summaries are retained because the existing expanded rows and CSV report consume them; removing them would change functionality. This legacy nested-history payload remains a documented scalability risk pending a dedicated paged expansion/export design, not an unmeasured speed claim.
+
+### Task 4 — N+1 queries
+
+Checked query-bearing loops, async maps, relation selects and frontend CSV exports. Found one insert per new variant inside a product transaction and one HTTP/detail lookup per order in the customer report. Variant creation now pre-generates UUIDs and performs one `createMany`, retaining the first input variant as primary and the existing atomic transaction. The customer report uses staff-only order batches of at most 100 IDs, sequentially chunked to avoid connection-pool flooding. Existing CSV columns and record coverage are unchanged. Other service loops only transform already-loaded data; wishlist names and customer order summaries are already batched.
+
+Before/after operation counts: N variant inserts -> 1 (maximum 50 variants); N order-detail requests -> ceil(N/100). No write benchmarks were run against customer data. Regression tests cover batch insertion, primary ordering, staff access, customer denial and oversized batches. Backend lint/typecheck and 158 tests pass; frontend production build passes. No records were created or deleted by these tests.
+
+### Task 5 — Query execution time
+
+Ran `npx tsx prisma/audit-query-timings.ts` against the configured database: one warm-up plus five sequential samples per read path, median reported below. These are service/query wall times from the local machine, not HTTP authentication-inclusive endpoint times or load tests. Before/after here means immediately before/after removing transactions around independent read-only list/count queries. PostgreSQL's default READ COMMITTED transactions did not provide a shared snapshot for these reads; write transactions and serializable checkout remain unchanged. Frontend/endpoints retain the same result fields. The explicit benchmark prints timings only, never parameters, records or credentials; no temporary timing middleware remains enabled.
+
+| Endpoint/query path | Before median ms | After median ms |
+| --- | ---: | ---: |
+| Public catalog page | 379.63 | 405.72 (unchanged path; network variation) |
+| Admin products page | 614.06 | 310.05 |
+| Customers page | 310.22 | 140.80 |
+| Employees page | 239.67 | 68.22 |
+| Orders page + summary | 691.94 | 874.94 (variable relation/network cost; not improved) |
+| Coupons page | 238.90 | 76.02 |
+| Product discounts page | 516.99 | 116.51 |
+| Notifications page + summary | 239.62 | 67.52 |
+| Wishlist page | 250.64 | 73.78 |
+| Wishlist analytics | 310.57 | 176.13 |
+| Appointments page | 246.40 | 70.36 |
+| Newsletter page | 352.22 | 134.31 |
+| Addresses page | 243.86 | 90.01 |
+| Cart read, no upsert | 132.44 | 174.70 (unchanged path) |
+
+Read-only EXPLAIN ANALYZE measured database execution at 0.082 ms for the product date page, 0.052 ms for the order date page, and 0.060 ms for customer role/date lookup. The small test dataset is not representative of production volume. Most simple reads now meet 100–200 ms locally; product/order relation-heavy paths do not. Remaining recommendations: co-locate API and database, benchmark with representative data/concurrency, and evaluate joined relation loading with a dedicated compatibility test before introducing it. No index-before timing was captured, and no index improvement is fabricated. Authentication and email delivery were not benchmarked with real credentials or emails.
+
+### Task 6 — Error handling
+
+Checked admin/customer route validation, Express 5 async handlers, global errors, Prisma errors, uploads and shared frontend API handling. Existing ApiError/Zod/duplicate/not-found/authorization handling was retained. Found development responses leaked stacks, malformed/oversized JSON and Multer errors became generic 500s, unsupported uploads were silently dropped, and database pool failures were indistinguishable from bugs.
+
+Fixed: stacks never reach clients; invalid JSON is 400, large JSON/files 413, unsupported media 415, database connectivity/pool unavailability 503, duplicates 409, missing records 404, auth failures 401/403. Responses retain the existing envelope and request ID; internal errors remain server-side. The shared frontend API handler forwards backend field messages and distinguishes timeout/network failures. Previously silent customer-detail and coupon-assignment failures use existing error toasts. Existing forms continue using their current error components, layouts and routes.
+
+Validation: backend typecheck/lint and all 165 tests pass; frontend production build passes. Seven added tests verify error statuses, malformed/oversized JSON and absence of private details/stacks. Existing suites exercise account, employee, product, coupon, appointment, cart/order, wishlist and notification authorization. Customer incidents and standalone category/color CRUD are not implemented backend modules and are not invented by this audit.
+
+### Task 7 — Invalid input testing
+
+Captured schema acceptance before fixes using offline safeParse probes (no database writes). Added the invalid-input matrix in `tests/input-validation-audit.test.ts`; the complete suite passes 204 tests. Checked wrong types, negative/zero/out-of-range numbers, long strings, malformed emails/dates, HTML labels, unsafe image URLs and disguised/oversized uploads. Existing appointment, auth, coupon and RBAC suites cover their public request paths. Browser form interaction is not substituted by schema tests; client-side checks are completed in Task 10.
+
+| Module/field | Invalid input | Previous behavior observed | Fixed behavior |
+| --- | --- | --- | --- |
+| Account/employee phone | `abcdefghij` | Accepted by schema | Rejected with phone validation; formatted numeric numbers retained |
+| Product/variant price | 0 | Accepted | Rejected; must be positive and fit Decimal(12,2) range |
+| Variant stock | -1 | Already rejected | Retained; also capped at PostgreSQL integer maximum |
+| Product images | Missing/empty default gallery | Accepted by backend | New product and explicit gallery replacement require a default image; color/variant images remain optional |
+| Product name | HTML script tag | Accepted as text | Rejected as plain-text label; React escaping remains in place |
+| Product name/email | Too long/malformed | Already rejected by length/email schemas | Retained and regression tested |
+| Coupon dates | null or numeric epoch | Coerced to dates and accepted | Only real Date values or valid ISO date/datetime strings accepted; impossible calendar dates rejected |
+| Coupon percentage | 101 | Already rejected | Retained; updates validate merged stored/new fields |
+| Coupon flat/percentage value | 0 | Accepted | Rejected; NONE uses zero |
+| Coupon usage limit | 0/-1 | Already rejected | Retained |
+| Upload | Unsupported type | Silently dropped before Task 6 | 415; MIME and header signature checked before any storage write |
+| Upload | Larger than 10 MB | Generic failure before Task 6 | 413; maximum 10 files, 10 MB each |
+| Coupon empty update | `{}` | Accepted | Tracked and fixed in Task 8 |
+
+Uploads now receive server-chosen extensions rather than user-supplied filename extensions. Header signatures prevent basic MIME spoofing, not a full antivirus/content-decoding guarantee. SQL uses Prisma parameter binding; HTML-like plain labels are rejected rather than silently rewriting legitimate text. No arbitrary stripping of passwords or email case changes beyond existing normalization was introduced.
+
+### Task 8 — Empty field checks
+
+Tested missing/undefined, null, empty and whitespace-only required account, variant, address and coupon fields, plus empty updates for customers, employees, addresses, products, variants, coupons and discounts. Required product names/materials/colors/variants/images are checked before create/save in the existing admin form; the variant form reports missing fields rather than silently returning. Coupon final submission rechecks required dates. Existing employee forms already trim/check required names and emails.
+
+Found empty coupon PATCH not only succeeded but injected create-time defaults (`isActive=true`, false flags and zero minimum order value). Removed defaults from PATCH fields and reject empty coupon/discount updates. Omitted fields now remain omitted; explicit false/null remains supported where intentional. No stored coupon flags were changed by this audit. Optional clearable profile fields remain nullable, description clearing is retained, and zero stock remains valid.
+
+Result: 235 backend tests pass, backend typecheck/lint and frontend build pass. `tests/empty-input-audit.test.ts` checks every required field across the tested schemas and verifies a description-only coupon update does not activate/reset anything. All tests are isolated/mocked; no invalid records were inserted into the connected database.
+
+### Task 9 — Duplicate scan and prevention
+
+Ran the read-only `prisma/audit-duplicates.ts` on the configured database, using trim/case normalization where appropriate. Results:
+
+| Key checked | Conflicting groups |
+| --- | ---: |
+| Emails / coupon codes / product identifiers (SKU) | 0 / 0 / 0 |
+| Product display names (review only) | 0 |
+| Employee identifiers / employee names (review only) | 0 / 0 |
+| Formatted phone equivalents (review only) | 0 |
+| Material brand/name | 0 |
+| Per-product color images | 0 |
+| Variant configuration + price | 0 |
+| Repeated color labels within a material | 0 |
+
+Cleanup report: **zero records removed, merged or rewritten; removed-record list is empty**. No cleanup backup was needed because no destructive operation was performed. Future cleanup must export affected rows and references before any change. Repeated display names or shared phone numbers alone are not proof of duplicate identities and will not be automatically merged.
+
+After the zero-conflict precheck, applied `006_audit_normalized_uniqueness.sql`: normalized SKU, material brand/name, and per-product variant configuration/price uniqueness. All three indexes are valid. Together with Task 2's normalized email/coupon/color-image indexes and existing unique membership/identifier constraints, database uniqueness is race-safe. Product color arrays also reject case/space-equivalent duplicates. Product/employee display names intentionally remain non-unique. Expression indexes are managed in documented SQL rather than falsely represented as Prisma-supported expression fields.
+
+### Task 10 — Admin field validation
+
+Checked the routed product/variant/color/gallery, employee, profile, coupon, product-discount, order, appointment and notification workflows. Added reusable frontend format/length/range checks without adding price/discount/stock calculations. Backend Zod validation remains authoritative. Products require positive prices, nonnegative integer stock, bounded text, unique color labels and a default image in the current admin add/edit flow; optional color/variant images remain optional. Fractional stock is rejected instead of silently truncated by parseInt. Coupon fields validate enums, positive applicable discounts, percentages <=100, integer usage bounds, real dates, and merged-field relationships during partial updates. Profile/employee name/email/phone/password bounds match the existing backend policy. File checks run before preview/upload and server storage. Extreme page values above 1,000,000 are rejected before overflowing Prisma skip offsets.
+
+| Module | Validation coverage |
+| --- | --- |
+| Accounts/employees/profile | Required/trimmed names, length limits, email format/normalization, numeric phone format, existing password bounds; role never accepted from public registration |
+| Products/material/color labels | Required fields, lengths, plain-text labels, normalized color uniqueness, default gallery image in routed admin flow |
+| Variants | Required size/mount/glass enum, positive bounded price/offer price, integer stock 0..2147483647, optional safe image URL |
+| Coupons | Required code/type/value/dates, code format, Decimal/integer bounds, percentage/date/usage relationships checked on merged backend state |
+| Product discounts | UUID references, optional valid expiry, nonempty strict updates; backend reference and uniqueness checks |
+| Orders/cart | Existing owned-address/customer authorization, quantity/status enums and server transition rules retained |
+| Appointments | Existing Indian phone/future date/location/frame requirements retained; valid calendar input and plain-text name checks added |
+| Notifications/wishlist | Valid UUIDs/enums, authenticated ownership/audience, bounded pages/batches; no new notification editor invented |
+| Category/customer incident/payment | No implemented category/incident CRUD to validate; payment deliberately untouched |
+
+Follow-up found while exercising validation errors: product-discount stores could put a structured details object into an error string and crash rendering. Coupon/discount stores now always hold safe message strings, clear stale details, and display errors instead of endless detail loaders.
+
+**Approved contract update:** the user explicitly chose to require images on legacy `POST /api/v1/products` too. It now requires an `images` array (1–30 entries) with at least one default/non-color image. Each entry has `imageUrl` (HTTP/S), `displayOrder` (positive integer), and optional `color`. Product/gallery creation uses one atomic Prisma nested write; missing, empty or color-only galleries return 400 before any write. The current dashboard's `/products/addProduct` uses the same gallery validator. Existing stored products are unchanged. Postman's Create Product example was updated: set `productImageUrl` to the public URL returned by the existing upload endpoint before sending it. Legacy image-less callers must add this field; the route and response envelope remain unchanged.
+
+Final verification: `npm run verify` passes (Prisma validation, TypeScript, backend ESLint, 244 tests and production build). Frontend production build and five isolated validation suites pass; targeted shared-code lint passes. Full frontend lint still reports 38 errors/6 warnings in legacy code (down from the observed 49/6 after fixing touched coupon/discount stores). Local backend/frontend HTTP smoke checks pass; catalog page limit=2 returns total=4 and totalPages=2; limit=101 and an extreme page return 400. No browser/mobile visual or production-concurrency test is claimed.
+
+### Remaining risks / recommendations
+
+- Product/order relation-heavy reads still exceed 200 ms over the current remote connection. Co-locate API/database and evaluate joined loading under representative production data before promising a latency SLA.
+- Existing customer-list nested order summaries and first-100 reference selectors remain compatibility/scalability limitations. Dedicated paged row expansions/searchable selectors/streamed full exports need a separate UI/API design rather than silently removing report content.
+- Update any external legacy product-creation caller to send the approved required images array. Audit fixes do not rewrite historical products or invalidate stored data retroactively.
+- Full frontend lint is not clean; avoid treating the passing build/targeted tests as full browser/end-to-end coverage.
+- File signature checks are not antivirus or complete media decoding. Add an isolated scanning pipeline if required by the deployment threat model.
+- Database expression indexes are in the two compatibility SQL files; preserve them during future manual schema/migration work.
+- No customer/account/order data was deleted or changed, no emails were sent, no credentials were hardcoded, and no Prisma migrations were generated/run. Only additive database indexes were applied. Authentication/RBAC, payment and pricing/order calculations were not rewritten.
+
+Changed-file inventory: [audit file inventory](docs/audit-file-inventory.md).
+
 FrameYaad's REST API is built with Express, TypeScript, Prisma, Supabase PostgreSQL, and Supabase Auth. Validation, authorization, and business logic remain in the backend; this repository contains no frontend code.
 
 ## Backend Progress

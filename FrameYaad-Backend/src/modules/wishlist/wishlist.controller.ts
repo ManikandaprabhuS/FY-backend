@@ -3,7 +3,7 @@ import type { z } from "zod";
 
 import { ApiError } from "../../utils/api-error";
 import type { addWishlistItemSchema } from "./wishlist.schemas";
-import { wishlistIdSchema } from "./wishlist.schemas";
+import { wishlistIdSchema, wishlistLookupSchema } from "./wishlist.schemas";
 import * as service from "./wishlist.service";
 
 type AddWishlistItemBody = z.infer<typeof addWishlistItemSchema>;
@@ -14,13 +14,19 @@ const userIdFrom = (request: Parameters<RequestHandler>[0]): string => {
 };
 
 export const list: RequestHandler = async (request, response) => {
-  const wishlist = await service.listWishlist(userIdFrom(request));
-  response.status(200).json({ success: true, data: { wishlist } });
+  const data = await service.listWishlist(userIdFrom(request), request.query);
+  response.status(200).json({ success: true, data });
 };
 
-export const analytics: RequestHandler = async (_request, response) => {
-  const products = await service.getWishlistAnalytics();
-  response.status(200).json({ success: true, data: { products } });
+export const analytics: RequestHandler = async (request, response) => {
+  const data = await service.getWishlistAnalytics(request.query);
+  response.status(200).json({ success: true, data });
+};
+
+export const lookup: RequestHandler = async (request, response) => {
+  const { productIdentifiers } = wishlistLookupSchema.parse(request.body);
+  const items = await service.lookupWishlist(userIdFrom(request), productIdentifiers);
+  response.status(200).json({ success: true, data: { items } });
 };
 
 export const add: RequestHandler = async (request, response) => {

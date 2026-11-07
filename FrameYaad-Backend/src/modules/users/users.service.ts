@@ -29,7 +29,7 @@ export const listCustomers = async (rawQuery: unknown) => {
         }
       : {}),
   };
-  const [users, total] = await prisma.$transaction([
+  const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: userViewSelect,
@@ -59,9 +59,25 @@ export const listCustomers = async (rawQuery: unknown) => {
 };
 
 export const getCustomer = async (id: string) => {
-  const user = await prisma.user.findFirst({ where: customerWhere(id), select: userViewSelect });
+  const [user, totals] = await Promise.all([
+    prisma.user.findFirst({ where: customerWhere(id), select: userViewSelect }),
+    prisma.order.aggregate({ where: { userId: id }, _count: { _all: true }, _sum: { totalPrice: true }, _max: { createdAt: true } }),
+  ]);
   if (!user) throw new ApiError(404, "Customer was not found", "CUSTOMER_NOT_FOUND");
-  return user;
+  return { ...user, orderStats: { count: totals._count._all, totalSpent: Number(totals._sum.totalPrice ?? 0), lastOrderAt: totals._max.createdAt } };
+};
+
+export const lookupCustomerByPhone = async (phone: string) => {
+  // The suffix comparison preserves local-number searches against country-code numbers.
+  // Parameter binding prevents user input from becoming SQL syntax.
+  const matches = await prisma.$queryRaw<Array<{ id: string; name: string; phoneNumber: string }>>(Prisma.sql`
+    SELECT id, name, "phoneNumber" FROM public.users
+    WHERE role = 'CUSTOMER' AND regexp_replace("phoneNumber", '[^0-9]', '', 'g') LIKE ${`%${phone}`}
+    ORDER BY CASE WHEN regexp_replace("phoneNumber", '[^0-9]', '', 'g') = ${phone} THEN 0 ELSE 1 END, "createdAt" DESC, id
+    LIMIT 1
+  `);
+  if (!matches[0]) throw new ApiError(404, "Customer was not found", "CUSTOMER_NOT_FOUND");
+  return matches[0];
 };
 
 export const updateCustomer = async (id: string, input: UpdateUserInput) => {
