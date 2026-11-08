@@ -6,6 +6,7 @@ import { ApiError } from "../../utils/api-error";
 import { paginationMeta, parsePagination } from "../../utils/pagination";
 import { userViewSelect } from "../../utils/user-view";
 import type { adminUpdateUserSchema } from "./users.schemas";
+import { buildCustomerSearch } from "./customer-search";
 
 type UpdateUserInput = z.infer<typeof adminUpdateUserSchema>;
 
@@ -19,15 +20,7 @@ export const listCustomers = async (rawQuery: unknown) => {
   const where: Prisma.UserWhereInput = {
     role: UserRole.CUSTOMER,
     ...(isActive === undefined ? {} : { isActive }),
-    ...(search
-      ? {
-          OR: [
-            { name: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-            { phoneNumber: { contains: search } },
-          ],
-        }
-      : {}),
+    ...await buildCustomerSearch(search),
   };
   const [users, total] = await Promise.all([
     prisma.user.findMany({

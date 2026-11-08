@@ -10,6 +10,9 @@ export const cartViewSelect = {
     select: {
       id: true,
       productIdentifier: true,
+      selectedVariantId: true,
+      selectedColorName: true,
+      selectedColorHex: true,
       quantity: true,
       price: true,
       subtotal: true,

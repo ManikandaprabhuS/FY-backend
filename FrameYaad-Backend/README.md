@@ -620,6 +620,36 @@ ADMIN_EMAIL=appointments@frameyaad.com
 
 Customer templates cover request received, confirmed, rescheduled, and cancelled. The admin receives a new-request email requiring action. Completion is intentionally admin-only with no email. Focused coverage lives in `tests/appointment-rbac.test.ts` and `tests/appointment.service.test.ts`.
 
+## Staff global search
+
+GET /api/v1/admin/search?q=... requires authenticated ADMIN or EMPLOYEE access. It accepts a trimmed 1–120-character query and returns at most five order and five customer suggestions, full per-group counts, normalized query, and a routing kind. FY- followed by digits identifies an order search; bare digits take order precedence only when matching an actual order number. Otherwise phone-like input is normalized and classified at 7–15 digits. Names/emails search both orders and CUSTOMER accounts case-insensitively. All queries are parameterized, LIKE wildcards are escaped, and no raw regular expression is created from input.
+
+The customer list reuses the normalized phone/name/email builder, so a global-search URL and its target list agree even when stored phones contain spaces/dashes/country codes. Existing customer detail/list routes and order APIs keep their contracts. Search is read-only and uses existing search indexes; no database/schema changes were needed. Authorization tests cover both staff roles, guests, customers and spoofed role parameters. Live read-only checks verified exact/partial/numeric order IDs, normalized phones, grouped name/email matches, no results, and the five-result cap.
+
+## Shared frame colours and order snapshots
+
+The persistent frame_colors catalogue is exposed read-only via GET /colors. POST /colors requires server-verified ADMIN or EMPLOYEE authentication; CUSTOMER and unauthenticated callers get 403/401. Strict schemas accept only trimmed 2–30-character alphanumeric/space names and six-digit hexes. Case-normalized unique names and canonical uppercase unique hexes prevent races/duplicates, with legacy aliases reserved to avoid changing old colour interpretation. The table has RLS enabled and direct anon/authenticated mutation privileges revoked; the backend owns writes. Only Black #000000 and White #FFFFFF were seeded. Existing Material.availableColors data is untouched.
+
+Cart APIs accept optional variantId/color, verify product membership and availability, retain server-resolved name/hex, and distinguish cart lines through a selection-aware unique key. Checkout derives price using the existing selected-variant price/subtotal formula and saves product ID/name, selected variant ID/size, colour name/hex, and material snapshots on OrderItem. Order responses and export prefer snapshots even if the live catalogue changes/disappears. Historical rows are not backfilled; safe read-only catalogue fallback and '-' are used instead. No current cart is guessed as historical evidence after checkout.
+
+Applied the reviewable prisma/compatibility/color-order-snapshots.sql additions: frame_colors, nullable snapshot/selection columns, and replacement of the old product-only cart uniqueness index with selection-aware uniqueness. No Prisma migration was generated/run, and no existing order or product-colour rows were rewritten. Prisma client was regenerated after the running Windows backend was stopped. Other databases need this script before deployment.
+
+Tests cover Admin/Employee creation, customer/guest rejection, invalid/duplicate input, snapshot precedence and deletion fallback, selected size/colour capture, unchanged subtotal calculation and distinct cart selections. Checkout UI remains unchanged by user request. There is no existing confirmation/itemized-email/invoice flow to modify; order-placed notifications remain unchanged.
+
+## Orders Management filters and export
+
+Root cause: dateFilter was stripped by the list-query schema; search handled only orderNumber; the UI export read the current page. orders.filters.ts now builds one Prisma filter for list and staff-only GET /orders/export. Range starts are local midnight N calendar days before today, using ORDER_TIME_ZONE, then TZ, then Asia/Kolkata. Today starts at today's local midnight; All Time adds no date constraint. Date, search, status, and customer ownership restrictions combine.
+
+Search is trimmed/case-insensitive for full/partial order number, customer name, and email. Numeric/phone-like searches remove punctuation and an Indian country prefix; parameterized SQL matches normalized stored user/address phones without updating them. LIKE wildcards are escaped for textual search. Summary queries retain date/search while preserving existing status-independent buckets (Pending = Placed; Processing = Confirmed + Processing + Ready to Ship). Export uses the same full filter, reads all matches in 500-row batches, and calculates count/revenue/average only from those matches.
+
+Verified existing primary/unique order-number/phone and date/status-date indexes. Applied six additive indexes: Order_userAddressId_idx (join), Order_orderNumber_trgm_idx, users_name_trgm_idx, users_email_trgm_idx (partial insensitive lookup), users_normalized_phone_trgm_idx and user_address_normalized_phone_trgm_idx (normalized partial phone lookup). pg_trgm already existed. The reviewable SQL is prisma/compatibility/order-search-indexes.sql; concurrent statements require a direct SQL session. Prisma rejected concurrent builds, so the approved application used separate short transactions with 2-second lock and 15-second statement timeouts. No migrations or row changes were made.
+
+Regression coverage includes local/DST boundaries, 7/30/90/all-time, wildcard/script-like input as data, partial order/phone searches, combined filters, ownership, admin/employee export authorization, empty results, and exporting 501 records across batches. Live checks confirmed 4 all-time orders, no recent-range matches, matching table/export counts, and one match for each requested order/phone search example.
+
+## Admin product required-field validation
+
+Admin product creation now requires a nonblank, trimmed description, matching the Basic Info form. Product updates reject a blank description when supplied, while partial updates can still omit it. Existing name, brand, material, color, variant, price/stock, and image validation is retained. Added missing/null/empty/whitespace description tests and updated valid test fixtures. No database schema or stored data changed.
+
 ## 404 handling
 
 Unknown API routes return generic JSON 404 without reflecting the URL. Malformed encoded paths and invalid scalar UUID path parameters return 404; body/query validation remains 400. Existing error handling hides internal stack traces and keeps server errors distinct. No schema, data, or authentication behavior changed.

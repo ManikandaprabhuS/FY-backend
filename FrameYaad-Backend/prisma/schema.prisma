@@ -307,7 +307,11 @@ model CartItem {
   cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productIdentifier], references: [productIdentifier], onDelete: Restrict, onUpdate: Cascade)
 
-  @@unique([cartId, productIdentifier])
+  selectedVariantId String?
+  selectedColorName String?
+  selectedColorHex String?
+  selectionKey String @default("")
+  @@unique([cartId, productIdentifier, selectionKey])
   @@index([productIdentifier])
   @@map("CartItem")
 }
@@ -335,6 +339,15 @@ model Order {
   @@map("Order")
 }
 
+model FrameColor {
+  id String @id @default(uuid())
+  name String @db.VarChar(30)
+  normalizedName String @unique @db.VarChar(30)
+  hex String @unique @db.VarChar(7)
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  @@map("frame_colors")
+}
+
 model OrderItem {
   id                String  @id @default(uuid())
   orderId           String  @map("orderId")
@@ -342,6 +355,10 @@ model OrderItem {
   snapshotProductId String? @map("productId")
   snapshotProductName String? @map("productName")
   snapshotFrameSize String? @map("frameSize")
+  snapshotVariantId String?
+  snapshotColorName String?
+  snapshotColorHex String?
+  snapshotMaterial String?
   quantity          Int
   subtotal          Decimal @db.Decimal(12, 2)
   price             Decimal @db.Decimal(12, 2)

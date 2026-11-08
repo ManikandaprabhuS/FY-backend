@@ -40,9 +40,13 @@ describe("grouped order summaries", () => {
     expect(result.pagination.total).toBe(6);
     expect(result.summary.pendingCount).toBe(2);
     const grouped = mocks.groupBy.mock.calls[0]?.[0] as { where: unknown };
-    expect(grouped.where).toEqual({ userId: "customer-id", orderNumber: { equals: "FY-1234" } });
+    expect(grouped.where).toEqual({ userId: "customer-id", OR: [
+      { orderNumber: { contains: "FY-1234", mode: "insensitive" } },
+      { user: { name: { contains: "FY-1234", mode: "insensitive" } } },
+      { user: { email: { contains: "FY-1234", mode: "insensitive" } } },
+    ] });
     const listed = mocks.findMany.mock.calls[0]?.[0] as { where: unknown };
-    expect(listed.where).toEqual({ userId: "customer-id", orderNumber: { equals: "FY-1234" }, status: "DELIVERED" });
+    expect(listed.where).toEqual({ ...(grouped.where as object), status: "DELIVERED" });
   });
 
   it("returns zero counts for an empty result", async () => {

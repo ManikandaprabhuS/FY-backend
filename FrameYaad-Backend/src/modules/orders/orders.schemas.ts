@@ -16,5 +16,6 @@ export const orderListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.nativeEnum(OrderStatus).optional(),
   userId: z.string().uuid().optional(),
-  search: z.string().trim().max(40).optional(),
+  search: z.string().trim().max(120).optional(),
+  dateFilter: z.enum(["all", "today", "7", "30", "90", "365"]).default("all"),
 });

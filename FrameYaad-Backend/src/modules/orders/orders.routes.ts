@@ -14,5 +14,6 @@ ordersRouter.use(authenticate);
 ordersRouter.post("/checkout", customersOnly, validateBody(checkoutSchema), controller.checkout);
 ordersRouter.post("/batch", orderManagers, validateBody(orderBatchSchema), controller.batch);
 ordersRouter.get("/", controller.list);
+ordersRouter.get("/export", orderManagers, controller.exportReport);
 ordersRouter.get("/:id", controller.get);
 ordersRouter.patch("/:id/status", orderManagers, validateBody(updateOrderStatusSchema), controller.updateStatus);

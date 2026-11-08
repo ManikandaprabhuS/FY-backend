@@ -5,8 +5,10 @@ import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import { createOrderPlacedNotifications } from "../notifications/notification-events.service";
-import { orderViewSelect } from "./orders.select";
+import { orderViewSelect, serializeOrderItem } from "./orders.select";
+import { resolveLegacyColor } from "../colors/colors.values";
 import { orderListQuerySchema } from "./orders.schemas";
+import { buildOrderWhere, orderRangeLabels } from "./orders.filters";
 import type { checkoutSchema, updateOrderStatusSchema } from "./orders.schemas";
 
 type CheckoutInput = z.infer<typeof checkoutSchema>;
@@ -52,11 +54,14 @@ export const checkout = (userId: string, input: CheckoutInput) =>
         items: {
           select: {
             productIdentifier: true,
+            selectedVariantId: true, selectedColorName: true, selectedColorHex: true,
             quantity: true,
             product: {
               select: {
-                material: { select: { isActive: true } },
-                variant: { select: { isActive: true, price: true } },
+                id: true, productName: true,
+                material: { select: { isActive: true, name: true } },
+                variant: { select: { id: true, color: true, frameSize: true, isActive: true, price: true } },
+                variants: { select: { id: true, color: true, frameSize: true, isActive: true, price: true } },
               },
             },
           },
@@ -66,14 +71,21 @@ export const checkout = (userId: string, input: CheckoutInput) =>
     if (!cart || cart.items.length === 0) {
       throw new ApiError(400, "Cart is empty", "CART_EMPTY");
     }
-    if (cart.items.some((item) => !item.product.material.isActive || !item.product.variant?.isActive)) {
+    if (cart.items.some((item) => !item.product.material.isActive || (!item.selectedVariantId && !item.product.variant?.isActive))) {
       throw new ApiError(409, "Cart contains an unavailable product", "CART_PRODUCT_UNAVAILABLE");
     }
 
     const orderItems = cart.items.map((item) => {
-      const price = item.product.variant!.price;
+      const variant = item.selectedVariantId ? item.product.variants.find(value => value.id === item.selectedVariantId) ?? (item.product.variant?.id === item.selectedVariantId ? item.product.variant : undefined) : item.product.variant;
+      if (!variant?.isActive) throw new ApiError(409, "Cart contains an unavailable variant", "CART_PRODUCT_UNAVAILABLE");
+      const price = variant.price;
+      const color = resolveLegacyColor(variant.color);
       return {
         productIdentifier: item.productIdentifier,
+        snapshotProductId: item.product.id, snapshotProductName: item.product.productName,
+        snapshotVariantId: variant.id, snapshotFrameSize: variant.frameSize,
+        snapshotColorName: item.selectedColorName ?? color.name, snapshotColorHex: item.selectedColorHex ?? color.hex,
+        snapshotMaterial: item.product.material.name,
         quantity: item.quantity,
         price,
         subtotal: price.mul(item.quantity),
@@ -102,16 +114,9 @@ export const checkout = (userId: string, input: CheckoutInput) =>
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
 export const listOrders = async (rawQuery: unknown, actorId: string, role: UserRole) => {
-  const { page, limit, status, userId, search } = orderListQuerySchema.parse(rawQuery);
-  const where: Prisma.OrderWhereInput = {
-    ...(role === UserRole.CUSTOMER ? { userId: actorId } : userId ? { userId } : {}),
-    ...(status ? { status } : {}),
-    ...(search
-      ? /^FY-\d{4}$/i.test(search)
-        ? { orderNumber: { equals: search.toUpperCase() } }
-        : { orderNumber: { contains: search, mode: "insensitive" } }
-      : {}),
-  };
+  const query = orderListQuerySchema.parse(rawQuery);
+  const { page, limit, status } = query;
+  const where = await buildOrderWhere(query, actorId, role);
   // One grouped count replaces six separate aggregate queries. Keep status
   // summaries independent of the selected status, as in the original API.
   const { status: _status, ...summaryWhere } = where;
@@ -139,6 +144,35 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
       deliveredCount: counts.get(OrderStatus.DELIVERED) ?? 0,
       cancelledCount: counts.get(OrderStatus.CANCELLED) ?? 0,
     },
+  };
+};
+
+const orderExportSelect = {
+  id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true,
+  user: { select: { name: true } },
+  items: orderViewSelect.items,
+} satisfies Prisma.OrderSelect;
+
+export const exportOrders = async (rawQuery: unknown, actorId: string, role: UserRole) => {
+  const query = orderListQuerySchema.parse(rawQuery);
+  const where = await buildOrderWhere(query, actorId, role);
+  const orders: Prisma.OrderGetPayload<{ select: typeof orderExportSelect }>[] = [];
+  let cursor: string | undefined;
+  while (true) {
+    const batch = await prisma.order.findMany({
+      where, select: orderExportSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 500, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    orders.push(...batch);
+    if (batch.length < 500) break;
+    cursor = batch[batch.length - 1]!.id;
+  }
+  const total = orders.reduce((sum, order) => sum.add(order.totalPrice), new Prisma.Decimal(0));
+  return {
+    range: [orderRangeLabels[query.dateFilter], query.status ? "Status: " + query.status.replaceAll("_", " ") : "", query.search ? "Search: " + query.search : ""].filter(Boolean).join(" | "),
+    generatedAt: new Date().toISOString(),
+    summary: { totalRevenue: total.toNumber(), orderCount: orders.length, averageOrderValue: orders.length ? total.div(orders.length).toNumber() : 0 },
+    orders: orders.map(order => ({ createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status, totalAmount: Number(order.totalPrice), user: order.user, orderItems: order.items.map(serializeOrderItem) })),
   };
 };
 

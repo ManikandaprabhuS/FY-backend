@@ -29,6 +29,12 @@ export const list: RequestHandler = async (request, response) => {
   response.status(200).json({ success: true, data: { ...data, orders: data.orders.map(serializeOrderView) } });
 };
 
+export const exportReport: RequestHandler = async (request, response) => {
+  const auth = authFrom(request);
+  const data = await service.exportOrders(request.query, auth.id, auth.role);
+  response.status(200).json({ success: true, data });
+};
+
 export const get: RequestHandler = async (request, response) => {
   const auth = authFrom(request);
   const order = await service.getOrder(orderIdFrom(request.params.id), auth.id, auth.role);

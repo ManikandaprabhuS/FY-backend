@@ -6,7 +6,7 @@ import { inputDateSchema } from "../src/utils/input-schemas";
 import { validateUpload } from "../src/utils/upload-validation";
 
 const variant = { frameSize: "5x5", mountType: "NONE", glassType: "NONE", price: 100, stockQuantity: 0 };
-const product = { name: "Test frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"], variants: [variant], images: [{ imageUrl: "https://example.com/default.png", displayOrder: 1 }] };
+const product = { description: "A test frame", name: "Test frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"], variants: [variant], images: [{ imageUrl: "https://example.com/default.png", displayOrder: 1 }] };
 const coupon = { code: "TEST", couponType: "PERCENTAGE", discountType: "PERCENTAGE", discountValue: 10, startDate: "2027-01-01", endDate: "2027-12-31", expiresAt: "2027-12-31" };
 
 describe("invalid input audit", () => {
@@ -40,6 +40,9 @@ describe("invalid input audit", () => {
   });
   it.each([{ discountValue: 101 }, { discountValue: -1 }, { discountValue: 0 }, { discountType: "INVALID" }, { usageLimit: 0 }, { usageLimit: -1 }, { startDate: null }, { expiresAt: "bad" }, { endDate: "2026-01-01" }])("rejects invalid coupon %j", fields => {
     expect(createCouponSchema.safeParse({ ...coupon, ...fields }).success).toBe(false);
+  });
+  it.each([undefined, null, "", "   "])("rejects incomplete product descriptions: %j", description => {
+    expect(createAdminProductPreviewSchema.safeParse({ ...product, description }).success).toBe(false);
   });
   it("rejects disguised and oversized uploads before storage", () => {
     expect(() => validateUpload({ mimetype: "image/png", buffer: Buffer.from("<script>bad</script>"), size: 20 })).toThrow();

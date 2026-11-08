@@ -14,7 +14,7 @@ describe("variant batch creation", () => {
     mocks.product.mockResolvedValue({ id: "product" });
     mocks.variants.mockResolvedValue({ count: 3 });
     mocks.update.mockResolvedValue({ id: "product" });
-    const input = createAdminProductPreviewSchema.parse({ name: "Batch frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"],
+    const input = createAdminProductPreviewSchema.parse({ description: "A batch test frame", name: "Batch frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"],
       images: [{ imageUrl: "https://example.com/frame.png", displayOrder: 1 }],
       variants: ["5x5", "8x10", "10x12"].map(frameSize => ({ frameSize, mountType: "NONE", glassType: "NONE", price: 100, stockQuantity: 2 })),
     });

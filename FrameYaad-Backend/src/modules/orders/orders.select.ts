@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { resolveLegacyColor } from "../colors/colors.values";
 
 export const orderViewSelect = {
   id: true,
@@ -31,6 +32,7 @@ export const orderViewSelect = {
       snapshotProductId: true,
       snapshotProductName: true,
       snapshotFrameSize: true,
+      snapshotVariantId: true, snapshotColorName: true, snapshotColorHex: true, snapshotMaterial: true,
       quantity: true,
       price: true,
       subtotal: true,
@@ -38,9 +40,10 @@ export const orderViewSelect = {
         select: {
           id: true,
           productName: true,
+          material: { select: { name: true } },
           variant: {
             select: {
-              frameSize: true,
+              id: true, color: true, frameSize: true,
               mountType: true,
             },
           },
@@ -58,18 +61,25 @@ export const orderViewSelect = {
 
 type OrderView = Prisma.OrderGetPayload<{ select: typeof orderViewSelect }>;
 
-// Historical orders retain their snapshot when the catalog product no longer exists.
-// Keep the same public item shape expected by the dashboard.
-export const serializeOrderView = (order: OrderView) => ({
-  ...order,
-  items: order.items.map(({ snapshotProductId, snapshotProductName, snapshotFrameSize, ...item }) => ({
+export const serializeOrderItem = (item: OrderView["items"][number]) => {
+  const legacy = resolveLegacyColor(item.product?.variant?.color);
+  const rawSize = item.snapshotFrameSize ?? item.product?.variant?.frameSize;
+  const frameSize = !rawSize || rawSize === "Not specified" ? "-" : rawSize;
+  const productId = item.snapshotProductId ?? item.product?.id ?? "-";
+  const productName = item.snapshotProductName ?? item.product?.productName ?? "-";
+  return {
     ...item,
-    productIdentifier: item.productIdentifier ?? snapshotProductId ?? item.id,
-    product: item.product ?? {
-      id: snapshotProductId ?? item.id,
-      productName: snapshotProductName ?? "Unavailable product",
-      variant: { frameSize: snapshotFrameSize ?? "Not specified", mountType: "Not specified" },
-      images: [],
+    productIdentifier: item.productIdentifier ?? item.snapshotProductId ?? item.id,
+    productId, productName, frameSize,
+    variantId: item.snapshotVariantId ?? item.product?.variant?.id ?? null,
+    colorName: item.snapshotColorName ?? legacy.name, colorHex: item.snapshotColorHex ?? legacy.hex,
+    material: item.snapshotMaterial ?? item.product?.material?.name ?? "-",
+    product: {
+      ...item.product, id: productId, productName,
+      variant: { ...item.product?.variant, id: item.snapshotVariantId ?? item.product?.variant?.id, color: item.snapshotColorHex ?? item.snapshotColorName ?? item.product?.variant?.color, frameSize, mountType: item.product?.variant?.mountType ?? "-" },
+      material: { name: item.snapshotMaterial ?? item.product?.material?.name ?? "-" },
+      images: item.product?.images ?? [],
     },
-  })),
-});
+  };
+};
+export const serializeOrderView = (order: OrderView) => ({ ...order, items: order.items.map(serializeOrderItem) });

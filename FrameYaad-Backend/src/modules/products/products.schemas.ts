@@ -31,7 +31,7 @@ export const createProductSchema = z.object({ ...productFields, images: galleryS
 // only to fields already present in the current schema.
 export const createAdminProductPreviewSchema = z.object({
   name: plainText(2, 160),
-  description: z.string().trim().max(2_000).optional(),
+  description: z.string().trim().min(1, 'Description is required').max(2_000),
   brandName: plainText(2, 120),
   material: plainText(2, 120),
   availableColors: colorsSchema,
@@ -62,7 +62,7 @@ const adminVariantFields = {
 
 export const updateAdminProductPreviewSchema = z.object({
   name: plainText(2, 160).optional(),
-  description: z.string().trim().max(2_000).optional(),
+  description: z.string().trim().min(1, 'Description is required').max(2_000).optional(),
   brandName: plainText(2, 120).optional(),
   material: plainText(2, 120).optional(),
   availableColors: colorsSchema.optional(),

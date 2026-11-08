@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   clearCart: vi.fn(),
   checkout: vi.fn(),
   listOrders: vi.fn(),
+  exportOrders: vi.fn(),
   getOrder: vi.fn(),
   getOrdersBatch: vi.fn(),
   updateOrderStatus: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("../src/modules/cart/cart.service", () => ({
 vi.mock("../src/modules/orders/orders.service", () => ({
   checkout: mocks.checkout,
   listOrders: mocks.listOrders,
+  exportOrders: mocks.exportOrders,
   getOrder: mocks.getOrder,
   getOrdersBatch: mocks.getOrdersBatch,
   updateOrderStatus: mocks.updateOrderStatus,
@@ -124,6 +126,18 @@ beforeEach(() => {
 });
 
 describe("cart ownership and order RBAC", () => {
+  it("rejects unauthenticated and customer order exports", async () => {
+    expect((await request(app).get("/api/v1/orders/export")).status).toBe(401);
+    expect((await request(app).get("/api/v1/orders/export").set("Authorization", "Bearer customer-token")).status).toBe(403);
+    expect(mocks.exportOrders).not.toHaveBeenCalled();
+  });
+  it.each([UserRole.ADMIN, UserRole.EMPLOYEE])("allows %s to export matching orders", async role => {
+    authenticateAs(role);
+    mocks.exportOrders.mockResolvedValue({ orders: [], summary: { totalRevenue: 0, orderCount: 0, averageOrderValue: 0 }, range: "Last 7 Days", generatedAt: "2026-11-08T00:00:00Z" });
+    const result = await request(app).get("/api/v1/orders/export?dateFilter=7&status=PROCESSING&search=FY-9905").set("Authorization", "Bearer staff-token");
+    expect(result.status).toBe(200);
+    expect(mocks.exportOrders).toHaveBeenCalledWith(expect.objectContaining({ dateFilter: "7", status: "PROCESSING", search: "FY-9905" }), employeeId, role);
+  });
   it("rejects customer access to order batches", async () => {
     const response = await request(app).post("/api/v1/orders/batch").set("Authorization", "Bearer customer-token").send({ ids: [orderId] });
     expect(response.status).toBe(403);
