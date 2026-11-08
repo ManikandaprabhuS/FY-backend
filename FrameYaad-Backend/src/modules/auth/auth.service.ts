@@ -80,7 +80,10 @@ export const registerCustomer = async (input: CustomerRegistrationInput): Promis
   });
 
   if (error) {
-    logger.warn({ supabaseStatus: error.status, supabaseCode: error.code }, "Supabase customer registration failed");
+    logger.warn(
+      { supabaseStatus: error.status, supabaseCode: error.code, supabaseError: error.message },
+      "Supabase customer registration failed",
+    );
     if (error.code === "user_already_exists" || error.code === "email_exists") {
       throw new ApiError(409, "An account with this email already exists", "ACCOUNT_ALREADY_EXISTS");
     }
