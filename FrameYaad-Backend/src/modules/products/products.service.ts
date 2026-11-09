@@ -1,4 +1,4 @@
-import { OrderStatus, Prisma, UserRole } from "@prisma/client";
+import { OrderStatus, UserRole } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { z } from "zod";
 
@@ -10,6 +10,7 @@ import { paginationMeta } from "../../utils/pagination";
 import { mapConcurrent } from "../../utils/map-concurrent";
 import { listPublicCatalog } from "./public-catalog.service";
 import { productViewSelect } from "./products.select";
+import { buildProductWhere } from "./products.filters";
 import { productListQuerySchema } from "./products.schemas";
 import type { createAdminProductPreviewSchema, createAdminVariantSchema, createProductSchema, updateAdminProductPreviewSchema, updateAdminVariantSchema, updateProductSchema } from "./products.schemas";
 
@@ -35,21 +36,9 @@ const assertActiveReferences = async (materialId: string, variantId: string): Pr
 };
 
 export const listProducts = async (rawQuery: unknown, role: UserRole) => {
-  const { page, limit, search, materialId, variantId, isActive } = productListQuerySchema.parse(rawQuery);
-  const customerVisibility: Prisma.ProductWhereInput = role === UserRole.CUSTOMER
-    ? { material: { isActive: true }, variant: { isActive: true } }
-    : {};
-  const where: Prisma.ProductWhereInput = {
-    ...customerVisibility,
-    ...(materialId ? { materialId } : {}),
-    ...(variantId ? { variantId } : {}),
-    ...(isActive === undefined ? {} : { material: { isActive } }),
-    ...(search ? { OR: [
-      { productName: { contains: search, mode: "insensitive" } },
-      { productIdentifier: { contains: search, mode: "insensitive" } },
-    ] } : {}),
-  };
-
+  const query = productListQuerySchema.parse(rawQuery);
+  const { page, limit } = query;
+  const where = buildProductWhere(query, role);
   const [products, total] = await Promise.all([
     prisma.product.findMany({ where, select: productViewSelect, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.product.count({ where }),

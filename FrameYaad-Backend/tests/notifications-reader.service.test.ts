@@ -2,7 +2,7 @@ import { NotificationType, UserRole } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  findFirst: vi.fn(),
+  findFirst: vi.fn(), count: vi.fn(),
   updateMany: vi.fn(),
   findUniqueOrThrow: vi.fn(),
   deleteMany: vi.fn(),
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/prisma/client", () => ({
   prisma: {
     notification: {
-      findFirst: mocks.findFirst,
+      findFirst: mocks.findFirst, count: mocks.count,
       updateMany: mocks.updateMany,
       findUniqueOrThrow: mocks.findUniqueOrThrow,
       deleteMany: mocks.deleteMany,
@@ -36,10 +36,10 @@ const unreadNotification = {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); mocks.count.mockResolvedValue(0);
   mocks.findFirst.mockResolvedValue(unreadNotification);
   mocks.updateMany.mockResolvedValue({ count: 1 });
-  mocks.findUniqueOrThrow.mockResolvedValue({
+  mocks.findFirst.mockResolvedValue({
     ...unreadNotification,
     read: true,
     readById: employeeId,
@@ -94,7 +94,7 @@ describe("shared notification reader tracking", () => {
       UserRole.EMPLOYEE,
     );
 
-    expect(mocks.updateMany).not.toHaveBeenCalled();
+    expect(mocks.updateMany).toHaveBeenCalledWith({ where: { id: notificationId, userId: null, read: false }, data: { read: true, readById: employeeId } });
     expect(notification.readBy?.name).toBe("First Reader");
   });
 });

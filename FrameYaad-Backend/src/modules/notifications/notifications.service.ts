@@ -51,14 +51,6 @@ export const unreadCount = (userId: string, role: UserRole) =>
 
 export const markRead = async (id: string, userId: string, role: UserRole) => {
   const audience = audienceWhere(userId, role);
-  const existing = await prisma.notification.findFirst({
-    where: { id, ...audience },
-    select: notificationSelect,
-  });
-  if (!existing) {
-    throw new ApiError(404, "Notification was not found", "NOTIFICATION_NOT_FOUND");
-  }
-  if (existing.read) return existing;
 
   await prisma.notification.updateMany({
     where: { id, ...audience, read: false },
@@ -66,7 +58,12 @@ export const markRead = async (id: string, userId: string, role: UserRole) => {
   });
   // Another staff member may have read the shared record concurrently. The
   // conditional update preserves the identity of the first reader.
-  return prisma.notification.findUniqueOrThrow({ where: { id }, select: notificationSelect });
+  const [notification, unread] = await Promise.all([
+    prisma.notification.findFirst({ where: { id, ...audience }, select: notificationSelect }),
+    unreadCount(userId, role),
+  ]);
+  if (!notification) throw new ApiError(404, "Notification was not found", "NOTIFICATION_NOT_FOUND");
+  return { ...notification, unreadCount: unread };
 };
 
 export const markAllRead = async (userId: string, role: UserRole) => {

@@ -149,7 +149,9 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 
 const orderExportSelect = {
   id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true,
-  user: { select: { name: true } },
+  user: { select: { name: true, email: true, phoneNumber: true } },
+  userAddress: orderViewSelect.userAddress,
+  couponId: true,
   items: orderViewSelect.items,
 } satisfies Prisma.OrderSelect;
 
@@ -157,6 +159,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
   const query = orderListQuerySchema.parse(rawQuery);
   const where = await buildOrderWhere(query, actorId, role);
   const orders: Prisma.OrderGetPayload<{ select: typeof orderExportSelect }>[] = [];
+  const couponCodes = new Map<string, string>();
   let cursor: string | undefined;
   while (true) {
     const batch = await prisma.order.findMany({
@@ -164,6 +167,11 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
       take: 500, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     orders.push(...batch);
+    const couponIds = [...new Set(batch.flatMap(order => order.couponId && !couponCodes.has(order.couponId) ? [order.couponId] : []))];
+    if (couponIds.length) {
+      const coupons = await prisma.coupon.findMany({ where: { id: { in: couponIds } }, select: { id: true, code: true } });
+      for (const coupon of coupons) couponCodes.set(coupon.id, coupon.code);
+    }
     if (batch.length < 500) break;
     cursor = batch[batch.length - 1]!.id;
   }
@@ -172,7 +180,17 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
     range: [orderRangeLabels[query.dateFilter], query.status ? "Status: " + query.status.replaceAll("_", " ") : "", query.search ? "Search: " + query.search : ""].filter(Boolean).join(" | "),
     generatedAt: new Date().toISOString(),
     summary: { totalRevenue: total.toNumber(), orderCount: orders.length, averageOrderValue: orders.length ? total.div(orders.length).toNumber() : 0 },
-    orders: orders.map(order => ({ createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status, totalAmount: Number(order.totalPrice), user: order.user, orderItems: order.items.map(serializeOrderItem) })),
+    orders: orders.map(order => {
+      const subtotal = order.items.reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0));
+      return {
+        createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
+        totalAmount: Number(order.totalPrice), user: order.user,
+        address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
+        paymentStatus: "-", paymentMethod: "-", exportCoupon: order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
+        subtotal: subtotal.toNumber(), discount: Prisma.Decimal.max(0, subtotal.sub(order.totalPrice)).toNumber(),
+        orderItems: order.items.map(serializeOrderItem),
+      };
+    }),
   };
 };
 

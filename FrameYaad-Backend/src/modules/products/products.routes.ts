@@ -27,6 +27,7 @@ productsRouter.get("/public", controller.listPublicProducts);
 productsRouter.get("/public/:id", controller.getPublicProduct);
 productsRouter.use(authenticate);
 productsRouter.get("/", controller.listProducts);
+productsRouter.get("/export", catalogManagers, controller.exportCsv);
 productsRouter.post(
   "/uploadProductImages",
   catalogManagers,

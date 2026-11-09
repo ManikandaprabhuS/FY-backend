@@ -655,3 +655,32 @@ Admin product creation now requires a nonblank, trimmed description, matching th
 Unknown API routes return generic JSON 404 without reflecting the URL. Malformed encoded paths and invalid scalar UUID path parameters return 404; body/query validation remains 400. Existing error handling hides internal stack traces and keeps server errors distinct. No schema, data, or authentication behavior changed.
 
 `npm run verify` passes: 26 test files, 251 tests, and TypeScript build. New tests cover unknown routes, malformed/undefined IDs, encoded script-like paths, long paths, and a nonexistent product UUID.
+
+## Notifications and complete exports - 9 November 2026
+
+The notification page previously waited for the write, then refetched both its list and the bell list. Mark-all also refetched its list. Read actions now update the shared page/bell/popup state immediately, decrement the server-backed unread count, and show one deduplicated "Marked as read" toast. Failures roll back affected records/counts and offer Retry. Polling/out-of-order responses cannot undo newer reads. Reader names appear optimistically and reconcile with the backend first-reader identity.
+
+Single read and mark-all each use one conditional updateMany, not a per-item loop, and return unreadCount (plus notification or updatedCount). The post-write lookup/count run independently. Customer writes use authenticated userId. As clarified, staff retain the shared userId=null inbox, showing the first ADMIN/EMPLOYEE reader's name. No per-user receipt schema was added. The live database already has notifications_userId_date_idx and notifications_userId_read_date_idx; no duplicate indexes or schema changes were needed.
+
+Exports retain existing formats/buttons: product/customer CSV and orders table PDF. Staff-only GET /products/export and /users/export reuse the list filter builders, stream all matches in 250-record batches, and handle backpressure/disconnects. Customer order totals use one aggregate per batch. Orders reuse buildOrderWhere with 500-record batches and batched coupon-code lookup. Loading/success/error toasts are deduplicated; no matches produces an amber warning and no download.
+
+- Product CSV: one row per variant (one blank-variant row if none), with product ID/name/brand/description/status/material/category/created date/base price/active price discount/stock total; variant ID/size/color name/hex/original price/selling price/stock/status. Missing category is "-"; variant ID is used where no separate SKU exists.
+- Customer CSV: ID/name/email/phone/default and all saved addresses/registered date/status/order count/amount spent/last order date/wishlist count. Explicit selects exclude passwords/tokens/OTPs/authentication internals.
+- Order PDF: all matching orders, contact/address/payment/coupon/subtotal/discount/total and snapshot item product ID/name/size/color/material/quantity/unit price/line total. Missing payment fields are "-" because this schema has no payment data. Stored prices/totals/statuses are unchanged.
+- CSV formula prefixes (=,+,-,@), including leading whitespace/control characters, are neutralized. Exports require ADMIN or EMPLOYEE server-side.
+- jsPDF + jspdf-autotable retain repeated headers, row-safe page breaks, wrapped cells, INR amounts, DD/MM/YYYY dates, totals and page numbers. A 501-order sample produced 75 pages; first/final pages were visually checked.
+
+### Notification timing measurements
+
+Three rollback-only database-operation samples, milliseconds; no existing notifications changed. These exclude HTTP/authentication. Interactive transactions serialize parallel queries.
+
+| Operation | Before (ms) | After (ms) |
+| --- | --- | --- |
+| Single-read DB work | 1328.39 / 264.66 / 269.91 | 534.55 / 265.40 / 233.86 (includes unread count) |
+| Click completion including both refetches | 2326.26 / 582.48 / 591.34 | Synchronous optimistic UI; no refetch |
+| Batched mark-all plus count, fixture-only predicate | Not measured | 137.35 / 158.56 / 162.37 |
+
+Reproduce in backend: npx tsx scripts/benchmark-notification-reads.ts. Its fixture always rolls back. Warm single-read DB timings remain above the ~200ms target; authenticated production endpoint timing is still needed. The original multi-minute server delay was not reproduced, so no infrastructure/root-cause claim is made. Connection/retry settings were not changed.
+
+Tests cover rollback/retry, duplicates, polling races, reader names, concurrent counts, export authorization, variant/no-variant products, safe fields, CSV injection, 0/501 records and PDF pagination. Browser interaction checks against the running application remain manual.
+

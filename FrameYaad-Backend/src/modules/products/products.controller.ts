@@ -1,5 +1,11 @@
 import type { UserRole } from "@prisma/client";
 import type { RequestHandler } from "express";
+import { streamCsv } from "../../utils/csv-export";
+import { productExportHeaders, productExportRows } from "./products.export";
+
+export const exportCsv: RequestHandler = async (request, response) => {
+  await streamCsv(response, "products-export", productExportHeaders, productExportRows(request.query));
+};
 import type { Request } from "express";
 import type { z } from "zod";
 

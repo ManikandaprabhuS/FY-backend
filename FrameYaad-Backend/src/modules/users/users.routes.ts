@@ -9,6 +9,7 @@ export const usersRouter = Router();
 
 usersRouter.use(authenticate, staffOnly);
 usersRouter.get("/", controller.listCustomers);
+usersRouter.get("/export", controller.exportCsv);
 usersRouter.get("/lookup/phone", controller.lookupCustomerByPhone);
 usersRouter.get("/:id", controller.getCustomer);
 usersRouter.patch("/:id", validateBody(adminUpdateUserSchema), controller.updateCustomer);

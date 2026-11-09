@@ -6,7 +6,7 @@ import { ApiError } from "../../utils/api-error";
 import { paginationMeta, parsePagination } from "../../utils/pagination";
 import { userViewSelect } from "../../utils/user-view";
 import type { adminUpdateUserSchema } from "./users.schemas";
-import { buildCustomerSearch } from "./customer-search";
+import { buildCustomerWhere } from "./users.filters";
 
 type UpdateUserInput = z.infer<typeof adminUpdateUserSchema>;
 
@@ -16,13 +16,9 @@ const customerWhere = (id: string): Prisma.UserWhereUniqueInput & { role: UserRo
 });
 
 export const listCustomers = async (rawQuery: unknown) => {
-  const { page, limit, search, isActive } = parsePagination(rawQuery);
-  const where: Prisma.UserWhereInput = {
-    role: UserRole.CUSTOMER,
-    ...(isActive === undefined ? {} : { isActive }),
-    ...await buildCustomerSearch(search),
-  };
-  const [users, total] = await Promise.all([
+  const query = parsePagination(rawQuery);
+  const { page, limit } = query;
+  const where = await buildCustomerWhere(query);  const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: userViewSelect,

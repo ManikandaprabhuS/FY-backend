@@ -1,4 +1,10 @@
 import type { RequestHandler } from "express";
+import { streamCsv } from "../../utils/csv-export";
+import { customerExportHeaders, customerExportRows } from "./users.export";
+
+export const exportCsv: RequestHandler = async (request, response) => {
+  await streamCsv(response, "users-export", customerExportHeaders, customerExportRows(request.query));
+};
 
 import { customerPhoneLookupSchema, userIdSchema } from "./users.schemas";
 import type { z } from "zod";

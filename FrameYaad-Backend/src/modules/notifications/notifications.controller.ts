@@ -24,18 +24,19 @@ export const unreadCount: RequestHandler = async (request, response) => {
 
 export const markRead: RequestHandler = async (request, response) => {
   const auth = authFrom(request);
-  const notification = await service.markRead(
+  const { unreadCount, ...notification } = await service.markRead(
     notificationIdSchema.parse(request.params.id),
     auth.id,
     auth.role,
   );
-  response.status(200).json({ success: true, data: { notification } });
+  response.status(200).json({ success: true, data: { notification, unreadCount } });
 };
 
 export const markAllRead: RequestHandler = async (request, response) => {
   const auth = authFrom(request);
   const updatedCount = await service.markAllRead(auth.id, auth.role);
-  response.status(200).json({ success: true, data: { updatedCount } });
+  const unreadCount = await service.unreadCount(auth.id, auth.role);
+  response.status(200).json({ success: true, data: { updatedCount, unreadCount } });
 };
 
 export const remove: RequestHandler = async (request, response) => {
