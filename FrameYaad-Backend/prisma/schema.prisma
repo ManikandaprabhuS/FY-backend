@@ -122,6 +122,8 @@ model User {
   wishlistItems     Wishlist[]
   notifications     Notification[] @relation("NotificationRecipient")
   notificationsRead Notification[] @relation("NotificationReadBy")
+  reviews Review[] @relation("ReviewAuthor")
+  moderatedReviews Review[] @relation("ReviewModerator")
   couponsCreated    Coupon[]       @relation("CouponCreatedBy")
 
   @@index([createdById])
@@ -260,6 +262,7 @@ model Product {
   cartItems     CartItem[]
   orderItems    OrderItem[]
   wishlistItems Wishlist[]
+  reviews Review[]
 
   @@index([materialId])
   @@index([variantId])
@@ -471,4 +474,37 @@ model Appointment {
   @@index([createdAt])
   @@index([email])
   @@map("appointments")
+}
+model Review {
+  id String @id @default(uuid())
+  productId String
+  userId String?
+  name String @db.VarChar(50)
+  email String @db.VarChar(254)
+  rating Int
+  title String? @db.VarChar(100)
+  comment String @db.VarChar(1000)
+  status String @default("PENDING") @db.VarChar(10)
+  verifiedPurchase Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp(3)
+  reviewedById String? @map("reviewedBy")
+  reviewedAt DateTime? @db.Timestamp(3)
+  rejectionReason String? @db.VarChar(500)
+  requestIpHash String @db.VarChar(64)
+  commentHash String @db.VarChar(64)
+  notificationId String? @unique
+  effectsProcessedAt DateTime? @db.Timestamp(3)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user User? @relation("ReviewAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  reviewedBy User? @relation("ReviewModerator", fields: [reviewedById], references: [id], onDelete: SetNull)
+  @@unique([productId, email])
+  @@index([productId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([requestIpHash, createdAt])
+  @@index([email, createdAt])
+  @@index([commentHash, createdAt])
+  @@index([effectsProcessedAt, createdAt])
+  @@map("reviews")
 }

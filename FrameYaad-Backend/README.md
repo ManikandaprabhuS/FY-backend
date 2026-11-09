@@ -731,3 +731,23 @@ The initial multi-query implementation was discarded after measurement showed ex
 Tests cover 0/1/3/5/6/50, invalid stock, cart capacity, checkout rejection, selected variants, optimistic add/removal, duplicates, atomic move failure, same-item quantity restoration, guest protection, logout isolation, ordered writes and late-read races. Manual browser/customer testing remains the final interaction check.
 
 
+## Reviews and ratings — approval workflow
+
+Anyone, including guests and non-buyers, can submit a review. Purchase history only supplies an informational verified-purchase badge; it never gates submission. The contradictory non-buyer rejection test in the request is intentionally not implemented.
+
+Reviews start PENDING. Only APPROVED reviews and approved-only averages/counts/breakdowns appear publicly. ADMIN and EMPLOYEE users manage reviews at /admin/reviews, including filtered pagination, approval/rejection, moderator/time audit, deletion and filtered PDF export. Product details and customer order history provide review entry points. Product cards, wishlist and the featured tile use real ratings, not placeholder stars.
+
+The Review model has a unique (productId, email) constraint, normalized email, rating/status checks, optional author/moderator relations, and lookup/rate-limit indexes. Review-only internal hash/outbox fields support abuse protection and retryable asynchronous notifications. Existing product/order/customer columns and data are unchanged. RLS and revoked anon/authenticated table access protect private email/hash fields from direct public access.
+
+Public API: GET /api/v1/reviews/summary?ids=..., GET/POST /api/v1/reviews/product/:id. Public reads explicitly select approved review display fields only; emails and internal fields are omitted. Staff API: GET /api/v1/reviews/admin, GET /admin/products, GET /admin/export, PATCH/DELETE /admin/:id (under the reviews prefix). These require verified ADMIN/EMPLOYEE authorization; submitted user IDs are rejected.
+
+Submission validates trimmed plain text, limits lengths, rejects HTML/script tags, includes a honeypot, IP/email request limits, persisted submission limits and repeated-comment checks. No OTP/password/token is involved or logged. IP limits use req.ip; production must configure trusted proxy handling for the actual deployment topology rather than trusting arbitrary forwarded headers. Aggregate cache TTL is five seconds, with local invalidation on moderation/deletion (other server instances may lag up to five seconds). Notifications use the existing shared staff inbox, with a durable review-row outbox, bounded worker concurrency and links to the selected review.
+
+Database setup: prisma/compatibility/reviews.sql contains only the new Review table, constraints, indexes and access policy. The non-production helper npx tsx prisma/apply-reviews.ts --apply applies it; no Prisma migration was generated/run. It has already been applied to the configured test database, and Prisma client regenerated. Deploy the equivalent reviewed SQL before running the updated backend.
+
+Demo data: npx tsx prisma/seed-reviews.ts --confirm-demo added ten labelled APPROVED demo reviews across five active products and exactly two PENDING demo reviews, with two staff notifications. Reserved example.invalid emails and [DEMO] markers identify disposable fixtures. The pending titles are "[DEMO] Please approve or delete". No existing products, orders or customers were changed.
+
+Validation: backend full verify passed (385 tests, schema validation, TypeScript, ESLint and build); frontend 169 tests and production build passed. A rollback-only real-database lifecycle check covered guest/non-buyer submission, duplicates, public privacy, approval/rejection, moderator audit, notifications and real buyer verification. PDF samples with 0, 3 and 501 rows were generated; the 63-page large sample and sample-page layout were inspected. The guest form was checked in-browser at 360px, including valid/invalid disabled-submit states, without submitting extra demo records. A stale Vite dependency render during initial navigation cleared on full reload; fresh product loading worked. Interactive authenticated staff moderation remains a final manual acceptance check.
+
+
+

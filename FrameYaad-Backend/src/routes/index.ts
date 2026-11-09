@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { reviewsRouter } from "../modules/reviews/reviews.routes";
 import { healthRouter } from "../modules/health/health.routes";
 import { authRouter } from "../modules/auth/auth.routes";
 import { employeesRouter } from "../modules/employees/employees.routes";
@@ -37,3 +38,4 @@ apiRouter.use("/coupons", couponRouter);
 apiRouter.use("/product-discounts", productDiscountRouter);
 apiRouter.use("/newsletter", newsletterRouter);
 apiRouter.use("/appointments", appointmentRouter);
+apiRouter.use("/reviews", reviewsRouter);

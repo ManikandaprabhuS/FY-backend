@@ -22,6 +22,13 @@ const notificationSelect = {
 const audienceWhere = (userId: string, role: UserRole): Prisma.NotificationWhereInput =>
   role === UserRole.CUSTOMER ? { userId } : { userId: null };
 
+const withReviewLinks = async <T extends { id: string; title: string }>(notifications: T[], role: UserRole): Promise<Array<T & { actionUrl?: string }>> => {
+  const ids = role === UserRole.CUSTOMER ? [] : notifications.filter(item => item.title === "New product review").map(item => item.id);
+  const reviews = ids.length ? await prisma.review.findMany({ where: { notificationId: { in: ids } }, select: { id: true, notificationId: true } }) : [];
+  const links = new Map(reviews.map(review => [review.notificationId, "/admin/reviews?reviewId=" + review.id]));
+  return notifications.map(item => ({ ...item, ...(ids.includes(item.id) ? { actionUrl: links.get(item.id) ?? "/admin/reviews" } : {}) }));
+};
+
 export const listNotifications = async (userId: string, role: UserRole, rawQuery: unknown) => {
   const { page, limit, read, type } = notificationListQuerySchema.parse(rawQuery);
   const where: Prisma.NotificationWhereInput = {
@@ -43,7 +50,7 @@ export const listNotifications = async (userId: string, role: UserRole, rawQuery
   const unreadCount = counts.get(false) ?? 0;
   const readCount = counts.get(true) ?? 0;
   const total = read === undefined ? unreadCount + readCount : counts.get(read) ?? 0;
-  return { notifications, pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
+  return { notifications: await withReviewLinks(notifications, role), pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
 };
 
 export const unreadCount = (userId: string, role: UserRole) =>
@@ -63,7 +70,8 @@ export const markRead = async (id: string, userId: string, role: UserRole) => {
     unreadCount(userId, role),
   ]);
   if (!notification) throw new ApiError(404, "Notification was not found", "NOTIFICATION_NOT_FOUND");
-  return { ...notification, unreadCount: unread };
+  const [linked] = await withReviewLinks([notification], role);
+  return { ...notification, ...(linked?.actionUrl ? { actionUrl: linked.actionUrl } : {}), unreadCount: unread };
 };
 
 export const markAllRead = async (userId: string, role: UserRole) => {
