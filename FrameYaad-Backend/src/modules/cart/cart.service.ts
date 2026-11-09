@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { z } from "zod";
 
 import { prisma } from "../../prisma/client";
+import { assertAvailableStock } from "../../utils/stock";
 import { ApiError } from "../../utils/api-error";
 import { cartViewSelect } from "./cart.select";
 import { productViewSelect } from "../products/products.select";
@@ -40,7 +41,7 @@ const refreshCartTotal = async (transaction: Prisma.TransactionClient, cartId: s
 };
 
 const getAvailableProduct = async (transaction: Prisma.TransactionClient, productIdentifier: string, variantId?: string | null) => {
-  const variantSelect = { id: true, color: true, frameSize: true, isActive: true, price: true } as const;
+  const variantSelect = { id: true, color: true, frameSize: true, isActive: true, price: true, stockQuantity: true } as const;
   const product = await transaction.product.findUnique({
     where: { productIdentifier },
     select: {
@@ -51,9 +52,19 @@ const getAvailableProduct = async (transaction: Prisma.TransactionClient, produc
   });
   const variant = variantId ? product?.variants.find(item => item.id === variantId) ?? (product?.variant?.id === variantId ? product.variant : undefined) : product?.variant;
   if (!product || !product.material.isActive || !variant?.isActive) throw new ApiError(404, "Product variant is not available", "PRODUCT_NOT_AVAILABLE");
-  return { ...product, variant };
+  return { ...product, primaryVariantId: product.variant?.id, variant };
 };
 
+
+const assertCartStock = async (transaction: Prisma.TransactionClient, cartId: string, product: Awaited<ReturnType<typeof getAvailableProduct>>, quantity: number, excludeId?: string) => {
+  const siblings = await transaction.cartItem.aggregate({
+    where: { cartId, productIdentifier: product.productIdentifier, ...(excludeId ? { id: { not: excludeId } } : {}), OR: [
+      { selectedVariantId: product.variant.id },
+      ...(product.primaryVariantId === product.variant.id ? [{ selectedVariantId: null }] : []),
+    ] }, _sum: { quantity: true },
+  });
+  assertAvailableStock(quantity + (siblings._sum.quantity ?? 0), product.variant.stockQuantity);
+};
 
 const returnCart = (transaction: Prisma.TransactionClient, cartId: string) =>
   transaction.cart.findUniqueOrThrow({ where: { id: cartId }, select: cartViewSelect });
@@ -85,6 +96,7 @@ export const addItem = (userId: string, input: AddCartItemInput) =>
       select: { id: true, quantity: true },
     });
     const quantity = (existing?.quantity ?? 0) + input.quantity;
+    await assertCartStock(transaction, cart.id, product, quantity, existing?.id);
     if (quantity > 99) throw new ApiError(400, "Cart item quantity cannot exceed 99", "QUANTITY_LIMIT_EXCEEDED");
     const price = product.variant.price;
     const subtotal = price.mul(quantity);
@@ -118,6 +130,7 @@ export const updateItem = (userId: string, itemId: string, input: UpdateCartItem
     });
     if (!item) throw new ApiError(404, "Cart item was not found", "CART_ITEM_NOT_FOUND");
     const product = await getAvailableProduct(transaction, item.productIdentifier, item.selectedVariantId);
+    await assertCartStock(transaction, item.cartId, product, input.quantity, item.id);
     const price = product.variant.price;
     await transaction.cartItem.update({
       where: { id: item.id },
@@ -141,37 +154,34 @@ export const removeItem = (userId: string, itemId: string) =>
 
 export const moveItemToWishlist = (userId: string, input: MoveCartItemToWishlistInput) =>
   prisma.$transaction(async (transaction) => {
-    const product = await getAvailableProduct(transaction, input.productIdentifier);
-    const cart = await transaction.cart.findUnique({
-      where: { userId },
-      select: { id: true },
+    const product = await getAvailableProduct(transaction, input.productIdentifier, input.variantId);
+    const cart = await transaction.cart.findUnique({ where: { userId }, select: { id: true } });
+    const inserted = await transaction.wishlist.createMany({
+      data: [{ userId, productIdentifier: product.productIdentifier }], skipDuplicates: true,
     });
-
-    const wishlistItem = await transaction.wishlist.upsert({
-      where: {
-        userId_productIdentifier: {
-          userId,
-          productIdentifier: product.productIdentifier,
-        },
-      },
-      create: { userId, productIdentifier: product.productIdentifier },
-      update: {},
-      select: wishlistSelect,
+    const wishlistItem = await transaction.wishlist.findUniqueOrThrow({
+      where: { userId_productIdentifier: { userId, productIdentifier: product.productIdentifier } }, select: wishlistSelect,
     });
-
     if (cart) {
-      await transaction.cartItem.deleteMany({
-        where: { cartId: cart.id, productIdentifier: product.productIdentifier },
+      const deleted = await transaction.cartItem.deleteMany({
+        where: {
+          cartId: cart.id, productIdentifier: product.productIdentifier,
+          ...(input.variantId ? { OR: [
+            { selectedVariantId: input.variantId },
+            ...(product.primaryVariantId === input.variantId ? [{ selectedVariantId: null }] : []),
+          ] } : {}),
+          ...(input.color ? { AND: [{ OR: [
+            { selectedColorHex: { equals: input.color, mode: "insensitive" } },
+            { selectedColorName: { equals: input.color, mode: "insensitive" } },
+            { selectedColorHex: null, selectedColorName: null },
+          ] }] } : {}),
+        },
       });
-      await refreshCartTotal(transaction, cart.id);
+      if (deleted.count) await refreshCartTotal(transaction, cart.id);
     }
-
-    return {
-      wishlistItem,
-      cart: cart ? await returnCart(transaction, cart.id) : null,
-    };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
+    const wishlistCount = await transaction.wishlist.count({ where: { userId } });
+    return { wishlistItem, wishlistCount, alreadySaved: inserted.count === 0, cart: cart ? await returnCart(transaction, cart.id) : null };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 });
 export const clearCart = async (userId: string): Promise<void> => {
   const cart = await prisma.cart.findUnique({ where: { userId }, select: { id: true } });
   if (!cart) return;

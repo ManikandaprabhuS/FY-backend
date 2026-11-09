@@ -13,4 +13,6 @@ export const updateCartItemSchema = z.object({
 
 export const moveCartItemToWishlistSchema = z.object({
   productIdentifier: z.string().trim().min(2).max(100),
+  variantId: z.string().uuid().optional(),
+  color: z.string().trim().min(1).max(80).optional(),
 }).strict();

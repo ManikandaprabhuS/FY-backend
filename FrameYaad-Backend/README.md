@@ -684,3 +684,50 @@ Reproduce in backend: npx tsx scripts/benchmark-notification-reads.ts. Its fixtu
 
 Tests cover rollback/retry, duplicates, polling races, reader names, concurrent counts, export authorization, variant/no-variant products, safe fields, CSV injection, 0/501 records and PDF pagination. Browser interaction checks against the running application remain manual.
 
+## Stock and instant wishlist audit - 9 November 2026
+
+### Previous stock behavior audited
+| Surface | Previous field/granularity and rule |
+| --- | --- |
+| Customer catalog cards | Sum of returned variants' stockQuantity; zero disabled Add to bag. A card-local threshold of 3 displayed "Only N left"; no shared stock label policy. |
+| Customer product details | Selected variant stockQuantity controlled Add to Bag/quantity limits, but the visible green "In stock" text was hardcoded. |
+| Admin product list | Summed stock only to detect zero; any individual variant at or below 15 made the whole product "Low Stock", even if other variants had ample stock. The summary counted non-in-stock products on the loaded page. |
+| Overview low stock table | Per-variant stockQuantity at or below 15; zero was Out of Stock, 1-5 Critical, and 6-15 Low. |
+| Admin variant details | Numeric quantities; one view colored values at or below 5 red. |
+| Customer cart/checkout | Cart quantities silently clamped to each stored stock snapshot; no stock status label. Backend cart/checkout did not validate available variant stock. Checkout remains its existing signed-in placeholder, not a new order form. |
+
+### Shared stock policy and enforcement
+src/utils/stock.ts is the single frontend status source and defines LOW_STOCK_THRESHOLD=5 once: <=0 Out of stock; 1-5 Low stock (N), amber and bold; >=6 In stock, green without a number. Null/undefined/non-numeric/negative/non-finite/unsafe values normalize safely to zero. Listing/admin product rows use summed variant stock; product details use the selected active variant and update with size/color. Overview remains variant-grained, now using the same threshold/labels (including out-of-stock alerts). Existing loaded-page summary scope is unchanged.
+
+Cart additions and quantity increases are rejected with an amber warning instead of silently increasing beyond stock. Combined quantities sharing a variant are checked across color lines. Checkout entry checks the known cart snapshot; backend cart add/update and checkout enforce current database stock and reject excess with HTTP 409 INSUFFICIENT_STOCK. Checkout rejects before order creation/cart clearing. No existing stock, order, price or saved cart data was rewritten, and inventory reservation/decrement behavior is unchanged.
+
+### Wishlist causes and fix
+The click path previously waited behind a shared read/mutation queue, performed a separate lookup request (including authentication), then updated the UI only after the backend write. The backend also performed a duplicate lookup and nested product reads around creation. No email/notification side effect was found on wishlist add. Authentication remains enforced on every API request; it was not bypassed or cached.
+
+Hearts, total badge and drawer now update optimistically together. Pending clicks for the same product/customer are ignored; failed requests restore affected state and show one red error. Late page/lookup responses cannot undo a click. Only network writes are ordered per customer, separately from background reads; queued writes cannot run under a different customer's session after logout.
+
+Add uses one parameterized PostgreSQL statement: active-product validation, INSERT ... ON CONFLICT DO NOTHING, one product payload and wishlistCount. Duplicate adds return alreadySaved=true and show only "Already in your wishlist" in amber. The existing filled-heart behavior still removes the product. A bounded fresh-snapshot retry handles a concurrent-insert visibility race. Response-field parity was checked against the previous Prisma-selected product payload, including prices.
+
+Wishlist is product-level, keyed by canonical productIdentifier (not by variant). Live indexes already include wishlist_userId_identifier_key, wishlist_userId_createdAt_idx and wishlist_productIdentifier_idx. The unique userId/productIdentifier key prevents duplicates; no redundant indexes or schema changes were applied.
+
+### Cart move to wishlist
+The previous frontend waited for a lookup plus a queued request and only then removed the local cart item. The endpoint used the primary variant rather than the selected one and deleted every server-cart selection for that product. It could therefore reject a valid selected variant when the primary was inactive.
+
+The existing move endpoint now accepts the selected variant/color and atomically inserts/gets the wishlist item, removes matching owned server-cart selections, refreshes affected totals and returns duplicate status/count. User identity comes exclusively from authentication; customers cannot select another user in the body. The local cart remains customer-scoped as before.
+
+The cart, totals, count, heart and drawer update immediately. Success shows "Moved to wishlist". An existing entry shows "Already in your wishlist. Removed from cart." without a duplicate row. Failure restores the cart selection/quantity, including when the same item was re-added or the customer logged out while waiting. Guests receive "Please login / create an account to add products to wishlist" and retain the cart item.
+
+### Wishlist timing results
+Rollback-only integration benchmark using a temporary fixture customer; no existing customer's wishlist/cart was changed. Values below are database service work in milliseconds, excluding HTTP/authentication and client queue time, NOT a production endpoint latency guarantee.
+
+| Operation | Before samples (ms) | Optimized samples (ms) |
+| --- | --- | --- |
+| Add service database work | 6134.74 / 581.52 / 600.95 | 141.87 / 76.56 / 65.98, including returned count |
+| Click path including its extra lookup | 6966.90 / 643.62 / 661.31 | Optimistic UI is synchronous; no click-time lookup/refetch |
+| Duplicate-safe add with count | Not measured | 74.38 / 61.56 / 127.03 |
+
+The initial multi-query implementation was discarded after measurement showed extra nested reads/count queries were still slow. The final single-statement path was below 200ms for these three DB samples. Full authenticated end-to-end latency still needs verification on the deployed service. Reproduce in the backend with npx tsx scripts/benchmark-wishlist.ts; fixture writes always roll back, and no secrets/customer data are printed.
+
+Tests cover 0/1/3/5/6/50, invalid stock, cart capacity, checkout rejection, selected variants, optimistic add/removal, duplicates, atomic move failure, same-item quantity restoration, guest protection, logout isolation, ordered writes and late-read races. Manual browser/customer testing remains the final interaction check.
+
+

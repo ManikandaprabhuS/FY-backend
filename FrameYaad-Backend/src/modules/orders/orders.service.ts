@@ -2,6 +2,7 @@ import { OrderStatus, Prisma, UserRole } from "@prisma/client";
 import type { z } from "zod";
 
 import { prisma } from "../../prisma/client";
+import { assertAvailableStock } from "../../utils/stock";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import { createOrderPlacedNotifications } from "../notifications/notification-events.service";
@@ -60,8 +61,8 @@ export const checkout = (userId: string, input: CheckoutInput) =>
               select: {
                 id: true, productName: true,
                 material: { select: { isActive: true, name: true } },
-                variant: { select: { id: true, color: true, frameSize: true, isActive: true, price: true } },
-                variants: { select: { id: true, color: true, frameSize: true, isActive: true, price: true } },
+                variant: { select: { id: true, color: true, frameSize: true, isActive: true, price: true, stockQuantity: true } },
+                variants: { select: { id: true, color: true, frameSize: true, isActive: true, price: true, stockQuantity: true } },
               },
             },
           },
@@ -75,9 +76,13 @@ export const checkout = (userId: string, input: CheckoutInput) =>
       throw new ApiError(409, "Cart contains an unavailable product", "CART_PRODUCT_UNAVAILABLE");
     }
 
+    const requestedByVariant = new Map<string, number>();
     const orderItems = cart.items.map((item) => {
       const variant = item.selectedVariantId ? item.product.variants.find(value => value.id === item.selectedVariantId) ?? (item.product.variant?.id === item.selectedVariantId ? item.product.variant : undefined) : item.product.variant;
       if (!variant?.isActive) throw new ApiError(409, "Cart contains an unavailable variant", "CART_PRODUCT_UNAVAILABLE");
+      const requested = (requestedByVariant.get(variant.id) ?? 0) + item.quantity;
+      assertAvailableStock(requested, variant.stockQuantity);
+      requestedByVariant.set(variant.id, requested);
       const price = variant.price;
       const color = resolveLegacyColor(variant.color);
       return {

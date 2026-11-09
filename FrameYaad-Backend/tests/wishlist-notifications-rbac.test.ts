@@ -88,7 +88,7 @@ beforeEach(() => {
       wishlistUserCount: 20,
     },
   ], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
-  mocks.addWishlistItem.mockResolvedValue({ id: wishlistId, productIdentifier: "FRAME-001" });
+  mocks.addWishlistItem.mockResolvedValue({ wishlistItem: { id: wishlistId, productIdentifier: "FRAME-001" }, wishlistCount: 1, alreadySaved: false });
   mocks.removeWishlistItem.mockResolvedValue(undefined);
   mocks.listNotifications.mockResolvedValue({
     notifications: [],

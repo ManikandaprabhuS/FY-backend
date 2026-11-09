@@ -30,11 +30,11 @@ export const lookup: RequestHandler = async (request, response) => {
 };
 
 export const add: RequestHandler = async (request, response) => {
-  const wishlistItem = await service.addWishlistItem(
+  const result = await service.addWishlistItem(
     userIdFrom(request),
     request.body as AddWishlistItemBody,
   );
-  response.status(201).json({ success: true, data: { wishlistItem } });
+  response.status(result.alreadySaved ? 200 : 201).json({ success: true, data: result });
 };
 
 export const remove: RequestHandler = async (request, response) => {

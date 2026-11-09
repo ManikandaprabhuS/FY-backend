@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+import { insertWishlist } from "./wishlist.insert";
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { parsePagination, paginationMeta } from "../../utils/pagination";
@@ -52,35 +53,8 @@ export const getWishlistAnalytics = async (rawQuery: unknown = {}) => {
   })), pagination: paginationMeta(page, limit, total) };
 };
 
-export const addWishlistItem = async (userId: string, input: AddWishlistItemInput) => {
-  const product = await prisma.product.findFirst({
-    where: {
-      productIdentifier: input.productIdentifier,
-      material: { isActive: true },
-      variant: { isActive: true },
-    },
-    select: { productIdentifier: true },
-  });
-  if (!product) {
-    throw new ApiError(404, "An active product was not found", "PRODUCT_NOT_FOUND");
-  }
-
-  const existing = await prisma.wishlist.findUnique({
-    where: {
-      userId_productIdentifier: { userId, productIdentifier: product.productIdentifier },
-    },
-    select: { id: true },
-  });
-  if (existing) {
-    throw new ApiError(409, "Product is already in the wishlist", "WISHLIST_ITEM_EXISTS");
-  }
-
-  return prisma.wishlist.create({
-    data: { userId, productIdentifier: product.productIdentifier },
-    select: wishlistSelect,
-  });
-};
-
+export const addWishlistItem = (userId: string, input: AddWishlistItemInput) =>
+  insertWishlist(prisma, userId, input.productIdentifier);
 export const removeWishlistItem = async (id: string, userId: string): Promise<void> => {
   const result = await prisma.wishlist.deleteMany({ where: { id, userId } });
   if (result.count === 0) {

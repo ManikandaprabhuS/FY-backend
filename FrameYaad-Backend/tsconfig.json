@@ -21,6 +21,7 @@
     "tests/**/*.ts",
     "prisma/audit-query-timings.ts",
     "scripts/benchmark-notification-reads.ts",
+    "scripts/benchmark-wishlist.ts",
     "prisma/audit-duplicates.ts",
     "vitest.config.mts"
   ],
