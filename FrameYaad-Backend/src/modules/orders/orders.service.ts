@@ -1,3 +1,6 @@
+import {randomUUID, createHash} from "node:crypto";
+import {createAddressSchema} from "../addresses/addresses.schemas";
+import {ORDER_STATUS_FLOW,parseStatusHistory} from "./order-status-flow";
 import { OrderStatus, Prisma, UserRole } from "@prisma/client";
 import type { z } from "zod";
 
@@ -7,7 +10,7 @@ import { lockOfferIdentity, offerIdentity, priceCheckoutItems, validateOffer } f
 import { assertAvailableStock } from "../../utils/stock";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
-import { createOrderPlacedNotifications } from "../notifications/notification-events.service";
+import {enqueueOrderPlacedEffects} from "./order-placed-effects";
 import { orderViewSelect, serializeOrderItem } from "./orders.select";
 import { resolveLegacyColor } from "../colors/colors.values";
 import { orderListQuerySchema } from "./orders.schemas";
@@ -17,15 +20,7 @@ import type { checkoutSchema, updateOrderStatusSchema } from "./orders.schemas";
 type CheckoutInput = z.infer<typeof checkoutSchema>;
 type UpdateOrderStatusInput = z.infer<typeof updateOrderStatusSchema>;
 
-const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
-  PLACED: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-  CONFIRMED: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
-  PROCESSING: [OrderStatus.READY_TO_SHIP, OrderStatus.CANCELLED],
-  READY_TO_SHIP: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
-  SHIPPED: [OrderStatus.DELIVERED],
-  DELIVERED: [],
-  CANCELLED: [],
-};
+
 
 const resolveLegacyOrderCoupons = async <T extends {couponId:string|null;couponTitle:string|null}>(orders:T[]):Promise<T[]> => {
   const ids=[...new Set(orders.flatMap(o=>o.couponId&&!o.couponTitle?[o.couponId]:[]))];
@@ -52,23 +47,39 @@ const orderNumber = async (database: Pick<Prisma.TransactionClient,"order">): Pr
 
 export const checkout = async (userId: string, input: CheckoutInput) => {
   for (let attempt=0; ; attempt++) {
-    try { return await checkoutAttempt(userId,input); }
+    try { const order=await checkoutAttempt(userId,input);enqueueOrderPlacedEffects(order.id);return order; }
     catch(error) {
-      if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && attempt < 2) continue;
+      if(error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2034" || (error.code==="P2002"&&String(error.meta?.target).includes("checkoutKey"))) && attempt < 2) continue;
       throw error;
     }
   }
 };
 const checkoutAttempt = (userId: string, input: CheckoutInput) =>
   prisma.$transaction(async (transaction) => {
+    // Stable request keys make network retries safe, including after the cart is cleared.
+    const checkoutHash=createHash("sha256").update(JSON.stringify({
+      address:input.userAddressId, payment:input.paymentMethod, coupon:input.couponCode??null,
+      version:input.couponVersion??null, remark:input.remark??null,
+      items:input.items?.map(item=>({productIdentifier:item.productIdentifier,variantId:item.variantId,quantity:item.quantity,colorName:item.colorName??null,colorHex:item.colorHex??null})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))??null
+    })).digest("hex");
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"checkout:"+userId}))::text`;
+    const previous=await transaction.order.findUnique({where:{userId_checkoutKey:{userId,checkoutKey:input.checkoutKey}},select:{checkoutHash:true,...orderViewSelect}});
+    if(previous){
+      if(previous.checkoutHash!==checkoutHash)throw new ApiError(409,"This checkout request has changed. Please review your order.","CHECKOUT_KEY_CONFLICT");
+      const {checkoutHash:_hash,...order}=previous;void _hash;return order;
+    }
+    const recent=await transaction.order.findFirst({where:{userId,checkoutHash,createdAt:{gte:new Date(Date.now()-60000)}},select:orderViewSelect});
+    if(recent)return recent;
     if(input.couponCode)await lockOfferSettings(transaction,input.couponCode);
     const identity = await offerIdentity(transaction,userId);
     await lockOfferIdentity(transaction,identity.email,identity.phone);
     const address = await transaction.userAddress.findFirst({
       where: { id: input.userAddressId, userId },
-      select: { id: true },
+      select: { id:true,addressLine:true,postalCode:true,city:true,state:true,country:true,contactPerson:true,contactNumber:true },
     });
     if (!address) throw new ApiError(400, "A valid owned address is required", "INVALID_ORDER_ADDRESS");
+    const {id:_addressId,...delivery}=address;void _addressId;
+    if(!createAddressSchema.safeParse(delivery).success)throw new ApiError(400,"Please complete a valid delivery address before placing your order.","INVALID_ORDER_ADDRESS");
 
     const cart = await transaction.cart.findUnique({
       where: { userId },
@@ -118,15 +129,20 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
         subtotal: price.mul(item.quantity),
       };
     });
+    if(!orderItems.length)throw new ApiError(400,"Cart is empty","CART_EMPTY");
     const totalPrice = orderItems.reduce(
       (total, item) => total.add(item.subtotal),
       new Prisma.Decimal(0),
     );
 
+    if(!totalPrice.isFinite()||totalPrice.lte(0))throw new ApiError(400,"Order total must be greater than zero.","INVALID_ORDER_TOTAL");
     const offer = await validateOffer(transaction,userId,totalPrice,input.couponCode,input.couponVersion);
+    const placedAt=new Date();
     const order = await transaction.order.create({
       data: {
         userId,
+        createdAt:placedAt, paymentMethod:input.paymentMethod, checkoutKey:input.checkoutKey, checkoutHash,
+        statusHistory:[{status:"PLACED",changedAt:placedAt.toISOString(),changedBy:{id:userId,role:UserRole.CUSTOMER}}],
         userAddressId: address.id,
         orderNumber: await orderNumber(transaction),
         totalPrice: offer.total,
@@ -138,7 +154,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
       },
       select: orderViewSelect,
     });
-    await createOrderPlacedNotifications(transaction, order);
+    // Notifications are queued only after this transaction commits.
     if (cart) {
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
       await transaction.cart.update({ where: { id: cart.id }, data: { totalPrice: 0 } });
@@ -181,7 +197,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 };
 
 const orderExportSelect = {
-  id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true,
+  id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true, paymentMethod:true,
   user: { select: { name: true, email: true, phoneNumber: true } },
   userAddress: orderViewSelect.userAddress,
   couponId: true,
@@ -220,7 +236,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
         totalAmount: Number(order.totalPrice), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
-        paymentStatus: "-", paymentMethod: "-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
+        paymentStatus: "-", paymentMethod: order.paymentMethod??"-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
         subtotal: Number(order.subtotal ?? subtotal), discount: Number(order.discountAmount ?? Prisma.Decimal.max(0, subtotal.sub(order.totalPrice))),
         orderItems: order.items.map(serializeOrderItem),
       };
@@ -237,19 +253,23 @@ export const getOrder = async (id: string, actorId: string, role: UserRole) => {
   return (await resolveLegacyOrderCoupons([order]))[0]!;
 };
 
-export const updateOrderStatus = async (id: string, input: UpdateOrderStatusInput) => {
-  const existing = await prisma.order.findUnique({ where: { id }, select: { status: true } });
-  if (!existing) throw new ApiError(404, "Order was not found", "ORDER_NOT_FOUND");
-  if (!allowedTransitions[existing.status].includes(input.status)) {
-    throw new ApiError(
-      409,
-      `Order cannot move from ${existing.status} to ${input.status}`,
-      "INVALID_ORDER_STATUS_TRANSITION",
-    );
-  }
-  return prisma.order.update({
-    where: { id },
-    data: { status: input.status, ...(input.remark === undefined ? {} : { remark: input.remark }) },
-    select: orderViewSelect,
-  });
+export const updateOrderStatus = async (id:string,input:UpdateOrderStatusInput,actor:{id:string;role:UserRole}) => {
+  if(actor.role!==UserRole.ADMIN&&actor.role!==UserRole.EMPLOYEE&&!(actor.role===UserRole.CUSTOMER&&input.status==="CANCELLED"))
+    throw new ApiError(403,"You do not have permission for this action","FORBIDDEN");
+  return prisma.$transaction(async tx=>{
+    const existing=await tx.order.findFirst({where:{id,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},select:{id:true,status:true,statusHistory:true}});
+    if(!existing)throw new ApiError(404,"Order was not found","ORDER_NOT_FOUND");
+    if(input.expectedStatus&&input.expectedStatus!==existing.status)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
+    if(!(ORDER_STATUS_FLOW.transitions[existing.status]??[]).includes(input.status)){
+      const message=input.status==="CANCELLED"&&ORDER_STATUS_FLOW.cancellationMessageStatuses.some(s=>s===existing.status)
+        ?ORDER_STATUS_FLOW.cancellationMessage:"Order cannot move from "+existing.status+" to "+input.status+". Follow the next valid step.";
+      throw new ApiError(400,message,"INVALID_ORDER_STATUS_TRANSITION");
+    }
+    const note=input.note??input.remark??undefined;
+    const entry={status:input.status,previousStatus:existing.status,changedAt:new Date().toISOString(),changedBy:{id:actor.id,role:actor.role},...(note?{note}:{}),eventId:randomUUID()};
+    const changed=await tx.order.updateMany({where:{id,status:existing.status,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},
+      data:{status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
+    if(!changed.count)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
+    return tx.order.findUniqueOrThrow({where:{id},select:orderViewSelect});
+  },{timeout:15000});
 };

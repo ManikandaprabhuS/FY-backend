@@ -9,10 +9,15 @@ import { checkoutItemsSchema } from "./checkout.schemas";
 import type { z } from "zod";
 type DB = Prisma.TransactionClient;
 export type CheckoutItem = z.infer<typeof checkoutItemsSchema>[number];
-export const priceCheckoutItems = async (db: DB, items: CheckoutItem[]) => {
+export const priceCheckoutItems = async (db: DB, items: CheckoutItem[],capture?: (items:Array<{productIdentifier:string;productName:string;variantId:string;frameSize:string;quantity:number;unitPrice:number;imageUrl:string|null}>)=>void) => {
   const products = await db.product.findMany({ where: { productIdentifier: { in: items.map(i=>i.productIdentifier) } },
-    select: { id:true, productIdentifier:true, productName:true, material:{select:{name:true,isActive:true}},
-      variant:{select:{id:true,isActive:true,price:true,stockQuantity:true,frameSize:true,color:true}}, variants:{select:{id:true,isActive:true,price:true,stockQuantity:true,frameSize:true,color:true}} } });
+    select: { id:true, productIdentifier:true, productName:true, images:{select:{imageUrl:true},orderBy:{isPrimary:"desc"},take:1},material:{select:{name:true,isActive:true}},
+      variant:{select:{id:true,isActive:true,price:true,stockQuantity:true,frameSize:true,color:true}}, variants:{where:{id:{in:items.map(item=>item.variantId)}},select:{id:true,isActive:true,price:true,stockQuantity:true,frameSize:true,color:true}} } });
+  capture?.(items.map(item=>{
+    const product=products.find(p=>p.productIdentifier===item.productIdentifier);
+    const variant=product?.variants.find(v=>v.id===item.variantId)??product?.variant;
+    return {productIdentifier:item.productIdentifier,productName:product?.productName??"",variantId:item.variantId,frameSize:variant?.frameSize??"",quantity:item.quantity,unitPrice:Number(variant?.price??0),imageUrl:product?.images[0]?.imageUrl??null};
+  }));
   const requested = new Map<string,number>();
   return items.map(item=>{
     const product=products.find(p=>p.productIdentifier===item.productIdentifier);
@@ -41,10 +46,13 @@ export const hasOrderHistory = async (db: DB,email:string,phone:string) => {
     ) AS found`);
   return rows[0]?.found??false;
 };
-export const eligibleOffers = async (db:DB,userId:string,subtotal:Prisma.Decimal.Value,fresh=false) => {
-  const [identity,settings]=await Promise.all([offerIdentity(db,userId),runtimeOffers(db,fresh)]);
-  const history=await hasOrderHistory(db,identity.email,identity.phone);
-  const amount=new Prisma.Decimal(subtotal);
+export const eligibleOffers = async (db:DB,userId:string,subtotal:Prisma.Decimal.Value|Promise<Prisma.Decimal.Value>,fresh=false) => {
+  const [context,settings,resolvedSubtotal]=await Promise.all([
+    offerIdentity(db,userId).then(async identity=>({identity,history:await hasOrderHistory(db,identity.email,identity.phone)})),
+    runtimeOffers(db,fresh),subtotal
+  ]);
+  const {identity,history}=context;
+  const amount=new Prisma.Decimal(resolvedSubtotal);
   const offers=settings.filter(offer=>offer.enabled&&(offer.code==="FIRST_ORDER"
     ? identity.email.length>0&&!history : amount.gt(offer.minOrderAmount??0)))
     .map(offer=>({code:offer.code as OfferCode,title:offer.title,description:offerDescription(offer),percent:Number(offer.percentage),version:offer.version,
@@ -54,23 +62,33 @@ export const eligibleOffers = async (db:DB,userId:string,subtotal:Prisma.Decimal
   const bigOrderRemovalMessage=big?.enabled&&amount.lte(big.minOrderAmount??0)
     ? "Offer removed. Order total is below Rs. "+Number(big.minOrderAmount).toLocaleString("en-IN")+"."
     : "This offer is no longer available";
-  return {identity,offers:offers.map(o=>({...o,bestOffer:offers.length>1&&o.discountAmount===best})),bigOrderRemovalMessage};
+  // Advertise the enabled Big Order rule without making it eligible.
+  const unavailableOffers=big?.enabled&&amount.lte(big.minOrderAmount??0)?[{
+    code:big.code as OfferCode,title:big.title,description:offerDescription(big),
+    percent:Number(big.percentage),version:big.version,discountAmount:0,total:amount.toNumber(),bestOffer:false,
+    unavailableReason:"Available on orders above Rs. "+Number(big.minOrderAmount).toLocaleString("en-IN")+"."
+  }]:[];
+  return {identity,offers:offers.map(o=>({...o,bestOffer:offers.length>1&&o.discountAmount===best})),unavailableOffers,bigOrderRemovalMessage};
 };
 export const lockOfferIdentity = async(db:DB,email:string,phone:string)=>{
   // Sorted transaction-scoped locks serialize either shared identity across accounts.
   for(const key of [...new Set(["email:"+email,...(phone?["phone:"+phone]:[])])].sort())
     await db.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key},0))::text`);
 };
-export const getCheckoutOffers=async(userId:string,items?:CheckoutItem[])=>{
+export const getCheckoutOffers=async(userId:string,items?:CheckoutItem[],includeItems=false)=>{
   let selections=items;
   if(!selections){
     const cart=await prisma.cart.findUnique({where:{userId},select:{items:{select:{productIdentifier:true,selectedVariantId:true,quantity:true,product:{select:{variantId:true}}}}}});
     selections=cart?.items.flatMap(i=>{const variantId=i.selectedVariantId??i.product.variantId;return variantId?[{productIdentifier:i.productIdentifier,variantId,quantity:i.quantity}]:[];})??[];
   }
-  const rows=selections.length?await priceCheckoutItems(prisma,selections):[];
-  const totals=offerTotals(rows.reduce((sum,i)=>sum.add(i.subtotal),new Prisma.Decimal(0)));
-  const [eligibility,addresses]=await Promise.all([eligibleOffers(prisma,userId,totals.subtotal),prisma.userAddress.findMany({where:{userId},select:{id:true,addressLine:true,city:true,state:true,country:true,postalCode:true,contactPerson:true,contactNumber:true}})]);
-  return {offers:totals.subtotal.gt(0)?eligibility.offers:[],subtotal:totals.subtotal.toNumber(),addresses,bigOrderRemovalMessage:eligibility.bigOrderRemovalMessage};
+  let summaryItems:Parameters<NonNullable<Parameters<typeof priceCheckoutItems>[2]>>[0]=[];
+  const rowsPromise=selections.length?priceCheckoutItems(prisma,selections,includeItems?value=>{summaryItems=value;}:undefined):Promise.resolve([]);
+  const totalsPromise=rowsPromise.then(rows=>offerTotals(rows.reduce((sum,i)=>sum.add(i.subtotal),new Prisma.Decimal(0))));
+  const [totals,eligibility,addresses]=await Promise.all([
+    totalsPromise,eligibleOffers(prisma,userId,totalsPromise.then(value=>value.subtotal)),
+    prisma.userAddress.findMany({where:{userId},select:{id:true,addressLine:true,city:true,state:true,country:true,postalCode:true,contactPerson:true,contactNumber:true}})
+  ]);
+  return {...(includeItems?{items:summaryItems,defaultAddress:addresses[0]??null}:{}),offers:totals.subtotal.gt(0)?eligibility.offers:[],unavailableOffers:totals.subtotal.gt(0)?eligibility.unavailableOffers:[],subtotal:totals.subtotal.toNumber(),addresses,bigOrderRemovalMessage:eligibility.bigOrderRemovalMessage};
 };
 export const validateOffer=async(db:DB,userId:string,subtotal:Prisma.Decimal.Value,code?:OfferCode,version?:number)=>{
   const eligibility=await eligibleOffers(db,userId,subtotal,true);

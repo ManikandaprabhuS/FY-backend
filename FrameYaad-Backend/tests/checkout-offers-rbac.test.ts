@@ -17,7 +17,12 @@ it.each(["ADMIN","EMPLOYEE"])("does not let %s claim customer offers",async role
 });
 it("derives the customer ID from verified authentication",async()=>{
  const result=await request(app).get("/api/v1/checkout/offers").set("Authorization","Bearer test");
- expect(result.status).toBe(200);expect(mocks.offers).toHaveBeenCalledWith("user",undefined);
+ expect(result.status).toBe(200);expect(mocks.offers).toHaveBeenCalledWith("user",undefined,false);
+});
+it("summary derives ownership from auth and batches the supplied selection",async()=>{
+ const result=await request(app).post("/api/v1/checkout/summary").set("Authorization","Bearer test").send({items:[{productIdentifier:"FRAME",variantId:"99999999-9999-4999-8999-999999999999",quantity:1}]});
+ expect(result.status).toBe(200);expect(mocks.offers).toHaveBeenCalledWith("user",expect.any(Array),true);
+ expect((await request(app).get("/api/v1/checkout/summary")).status).toBe(401);
 });
 it("validates selection input and returns 404 for old coupon APIs",async()=>{
  expect((await request(app).post("/api/v1/checkout/offers").set("Authorization","Bearer test").send({items:[{productIdentifier:"P",variantId:"bad",quantity:-1}]})).status).toBe(400);

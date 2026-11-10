@@ -1,0 +1,12 @@
+import {Router} from "express";
+import {UserRole} from "@prisma/client";
+import {z} from "zod";
+import {authenticate,authorize} from "../../middleware/auth.middleware";
+import {listCustomerNotifications,customerUnreadCount,readCustomerNotification} from "./customer-notifications.service";
+export const customerNotificationsRouter=Router();
+customerNotificationsRouter.use(authenticate,authorize(UserRole.CUSTOMER));
+customerNotificationsRouter.use((_req,res,next)=>{res.setHeader("Cache-Control","no-store");next();});
+customerNotificationsRouter.get("/",async(req,res)=>res.json({success:true,data:await listCustomerNotifications(req.auth!.user.id,req.query)}));
+customerNotificationsRouter.get("/unread-count",async(req,res)=>res.json({success:true,data:{unreadCount:await customerUnreadCount(req.auth!.user.id)}}));
+customerNotificationsRouter.patch("/read-all",async(req,res)=>res.json({success:true,data:await readCustomerNotification(req.auth!.user.id)}));
+customerNotificationsRouter.patch("/:id/read",async(req,res)=>res.json({success:true,data:await readCustomerNotification(req.auth!.user.id,z.string().uuid().parse(req.params.id))}));

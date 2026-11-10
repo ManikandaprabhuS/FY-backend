@@ -24,7 +24,15 @@ export const getAddress = async (id: string, userId: string) => {
 };
 
 export const createAddress = (userId: string, input: CreateAddressInput) =>
-  prisma.userAddress.create({ data: { ...input, userId } });
+  prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"address:"+userId}))::text`;
+    const existing=await tx.userAddress.findFirst({where:{userId,...input}});
+    const address=existing??await tx.userAddress.create({data:{...input,userId}});
+    // Delivery contact details must not change the account's verified identity.
+    const {addressLine,postalCode,city,state,country}=input;
+    await tx.user.update({where:{id:userId},data:{addressLine,postalCode,city,state,country}});
+    return address;
+  });
 
 export const updateAddress = async (id: string, userId: string, input: UpdateAddressInput) => {
   await getAddress(id, userId);

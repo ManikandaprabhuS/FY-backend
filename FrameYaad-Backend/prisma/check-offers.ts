@@ -22,7 +22,7 @@ async function main(){
   const first=(await eligibleOffers(prisma,ids[0]!,6000)).offers.find(o=>o.code==="FIRST_ORDER");
   assert(first,"Enable FIRST_ORDER before running this explicit test");
   const items=[{productIdentifier:product.productIdentifier,variantId:product.variants[0].id,quantity:1}];
-  const targets=process.argv.includes("--same-user")?[0,0]:[0,1]; const outcomes=await Promise.allSettled(targets.map(i=>checkout(ids[i]!,{userAddressId:addresses[i]!,items,couponCode:"FIRST_ORDER",couponVersion:first.version})));
+  const targets=process.argv.includes("--same-user")?[0,0]:[0,1]; const outcomes=await Promise.allSettled(targets.map(i=>checkout(ids[i]!,{userAddressId:addresses[i]!,paymentMethod:"COD",checkoutKey:randomUUID(),items,couponCode:"FIRST_ORDER",couponVersion:first.version})));
   console.info(JSON.stringify({outcomes:outcomes.map(o=>{if(o.status==="fulfilled")return {status:o.status};const e:unknown=o.reason;return {status:o.status,code:e&&typeof e==="object"&&"code" in e?e.code:"unknown",message:e instanceof Error?e.message.slice(-500):"unknown"};})}));
   assert.equal(outcomes.filter(o=>o.status==="fulfilled").length,1,"Exactly one first-order checkout must succeed for shared phone");
   const rejected=outcomes.find(o=>o.status==="rejected");

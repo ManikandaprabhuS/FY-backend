@@ -122,7 +122,7 @@ beforeEach(() => {
   mocks.listOrders.mockResolvedValue({ orders: [order], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
   mocks.getOrder.mockResolvedValue(order);
   mocks.getOrdersBatch.mockResolvedValue([order]);
-  mocks.updateOrderStatus.mockResolvedValue({ ...order, status: OrderStatus.CONFIRMED });
+  mocks.updateOrderStatus.mockResolvedValue({ ...order, status: OrderStatus.PROCESSING });
 });
 
 describe("cart ownership and order RBAC", () => {
@@ -198,10 +198,10 @@ describe("cart ownership and order RBAC", () => {
     const response = await request(app)
       .post("/api/v1/orders/checkout")
       .set("Authorization", "Bearer customer-token")
-      .send({ userAddressId: addressId, remark: "Handle with care" });
+      .send({ userAddressId: addressId, paymentMethod:"COD",checkoutKey:addressId,remark: "Handle with care" });
     expect(response.status).toBe(201);
     expect(mocks.checkout).toHaveBeenCalledWith(customerId, {
-      userAddressId: addressId,
+      userAddressId: addressId, paymentMethod:"COD",checkoutKey:addressId,
       remark: "Handle with care",
     });
   });
@@ -218,7 +218,7 @@ describe("cart ownership and order RBAC", () => {
     const response = await request(app)
       .patch(`/api/v1/orders/${orderId}/status`)
       .set("Authorization", "Bearer customer-token")
-      .send({ status: OrderStatus.CONFIRMED });
+      .send({ status: OrderStatus.PROCESSING });
     expect(response.status).toBe(403);
     expect(mocks.updateOrderStatus).not.toHaveBeenCalled();
   });
@@ -234,8 +234,8 @@ describe("cart ownership and order RBAC", () => {
     const updateResponse = await request(app)
       .patch(`/api/v1/orders/${orderId}/status`)
       .set("Authorization", "Bearer employee-token")
-      .send({ status: OrderStatus.CONFIRMED });
+      .send({ status: OrderStatus.PROCESSING });
     expect(updateResponse.status).toBe(200);
-    expect(mocks.updateOrderStatus).toHaveBeenCalledWith(orderId, { status: OrderStatus.CONFIRMED });
+    expect(mocks.updateOrderStatus).toHaveBeenCalledWith(orderId, { status: OrderStatus.PROCESSING }, {id:employeeId,role:UserRole.EMPLOYEE});
   });
 });

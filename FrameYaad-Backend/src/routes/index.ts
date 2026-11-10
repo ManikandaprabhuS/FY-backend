@@ -1,4 +1,5 @@
 import { Router } from "express";
+import {customerNotificationsRouter} from "../modules/customer-notifications/customer-notifications.routes";
 
 import { reviewsRouter } from "../modules/reviews/reviews.routes";
 import { healthRouter } from "../modules/health/health.routes";
@@ -38,6 +39,7 @@ apiRouter.use("/colors", colorsRouter);
 apiRouter.use("/admin", adminSearchRouter);
 apiRouter.use("/wishlist", wishlistRouter);
 apiRouter.use("/notifications", notificationsRouter);
+apiRouter.use("/customer-notifications",customerNotificationsRouter);
 
 
 apiRouter.use("/newsletter", newsletterRouter);

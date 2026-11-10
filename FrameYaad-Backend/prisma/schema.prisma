@@ -130,6 +130,7 @@ model User {
   orders            Order[]
   wishlistItems     Wishlist[]
   notifications     Notification[] @relation("NotificationRecipient")
+  customerNotifications CustomerNotification[]
   notificationsRead Notification[] @relation("NotificationReadBy")
   reviews Review[] @relation("ReviewAuthor")
   moderatedReviews Review[] @relation("ReviewModerator")
@@ -160,6 +161,8 @@ model UserAddress {
   country       String @db.VarChar(100)
   contactPerson String @map("contactPerson") @db.VarChar(120)
   contactNumber String @map("contactNumber") @db.VarChar(20)
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  updatedAt DateTime @updatedAt @db.Timestamp(3)
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders Order[]
@@ -308,6 +311,12 @@ model Order {
   subtotal Decimal? @db.Decimal(12,2)
   offerEmail String? @db.VarChar(254)
   offerPhone String? @db.VarChar(20)
+  statusHistory Json? @db.JsonB
+  paymentMethod String? @db.VarChar(20)
+  checkoutKey String? @db.VarChar(36)
+  checkoutHash String? @db.VarChar(64)
+  @@unique([userId, checkoutKey])
+  @@index([userId, checkoutHash, createdAt])
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   userAddress UserAddress @relation(fields: [userAddressId], references: [id], onDelete: Restrict)
@@ -367,6 +376,22 @@ model Wishlist {
   @@index([productIdentifier])
   @@index([userId, createdAt(sort: Desc), id])
   @@map("wishlist")
+}
+
+model CustomerNotification {
+  id String @id @default(uuid())
+  userId String
+  type String @db.VarChar(40)
+  title String @db.VarChar(120)
+  message String @db.VarChar(500)
+  orderId String
+  isRead Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@index([userId,isRead,createdAt(sort:Desc)])
+  @@index([userId,createdAt(sort:Desc)])
+  @@index([createdAt])
+  @@map("customer_notifications")
 }
 
 model Notification {

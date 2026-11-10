@@ -15,7 +15,9 @@ const offersHandler: RequestHandler = async(req,res)=>{
   if(requests.size>10000)for(const [k,v]of requests)if(v.expires<=now)requests.delete(k);
   const items=req.method==="POST"?checkoutItemsSchema.parse((req.body as {items?:unknown})?.items):undefined;
   res.setHeader("Cache-Control","no-store");
-  res.json({success:true,data:await getCheckoutOffers(id,items)});
+  res.json({success:true,data:await getCheckoutOffers(id,items,req.path==="/summary")});
 };
+checkoutRouter.get("/summary",offersHandler);
+checkoutRouter.post("/summary",offersHandler);
 checkoutRouter.get("/offers",offersHandler);
 checkoutRouter.post("/offers",offersHandler);

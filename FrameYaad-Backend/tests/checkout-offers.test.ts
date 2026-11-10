@@ -18,6 +18,18 @@ describe("two checkout offers",()=>{
   expect(result.offers.map(o=>o.code)).toEqual(codes);
   if(amount===6000){expect(result.offers.find(o=>o.code==="BIG_ORDER")).toMatchObject({bestOffer:true,discountAmount:600,total:5400});}
  });
+ it.each([2000,5000])("advertises Big Order as unavailable at %s without making it applicable",async(amount)=>{
+  const result=await eligibleOffers(db(fixture()),"customer",amount,true);
+  expect(result.unavailableOffers).toEqual([expect.objectContaining({code:"BIG_ORDER",percent:10,discountAmount:0,unavailableReason:"Available on orders above Rs. 5,000."})]);
+  expect(result.offers.some(o=>o.code==="BIG_ORDER")).toBe(false);
+  await expect(validateOffer(db(fixture()),"customer",amount,"BIG_ORDER",1)).rejects.toMatchObject({code:"OFFER_UNAVAILABLE"});
+ });
+ it("unlocks Big Order above the minimum and never advertises a disabled offer",async()=>{
+  expect((await eligibleOffers(db(fixture()),"customer",5001,true)).unavailableOffers).toEqual([]);
+  const tx=fixture();
+  tx.offer.findMany.mockResolvedValueOnce(Object.values(CHECKOUT_OFFERS).map(o=>({...o,enabled:o.code!=="BIG_ORDER",percentage:new Prisma.Decimal(o.percentage),minOrderAmount:o.minOrderAmount==null?null:new Prisma.Decimal(o.minOrderAmount),version:1,updatedBy:null,updatedAt:new Date()})));
+  expect((await eligibleOffers(db(tx),"customer",2000,true)).unavailableOffers).toEqual([]);
+ });
  it("hides first-order for any email OR phone history without revealing a reason",async()=>{
   const result=await eligibleOffers(db(fixture(true)),"customer",2000);
   expect(result.offers).toEqual([]);
@@ -37,7 +49,7 @@ describe("two checkout offers",()=>{
   await expect(validateOffer(db(fixture()),"customer",5000,"BIG_ORDER")).rejects.toMatchObject({code:"OFFER_UNAVAILABLE"});
  });
  it("accepts only a code, rejects tampered totals and arbitrary codes",()=>{
-  const valid={userAddressId:"99999999-9999-4999-8999-999999999999"};
+  const valid={userAddressId:"99999999-9999-4999-8999-999999999999",paymentMethod:"COD",checkoutKey:"99999999-9999-4999-8999-999999999998"};
   expect(checkoutSchema.safeParse({...valid,couponCode:"BIG_ORDER"}).success).toBe(true);
   for(const patch of [{couponCode:"FREE"},{discountAmount:2000},{total:1},{couponId:"old"}])expect(checkoutSchema.safeParse({...valid,...patch}).success).toBe(false);
  });

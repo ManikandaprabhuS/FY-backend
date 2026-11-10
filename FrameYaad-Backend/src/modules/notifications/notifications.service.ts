@@ -29,6 +29,14 @@ const withReviewLinks = async <T extends { id: string; title: string }>(notifica
   return notifications.map(item => ({ ...item, ...(ids.includes(item.id) ? { actionUrl: links.get(item.id) ?? "/admin/reviews" } : {}) }));
 };
 
+const withOrderLinks=async<T extends {id:string;title:string;message:string}>(notifications:T[],userId:string,role:UserRole)=>{
+ const linked=await withReviewLinks(notifications,role);
+ if(role!==UserRole.CUSTOMER)return linked;
+ const candidates=notifications.filter(n=>n.title==="Order status updated").map(n=>({id:n.id,number:n.message.match(/^Your order (FY-[A-Za-z0-9_-]+) is now /)?.[1]}));
+ const numbers=candidates.flatMap(n=>n.number?[n.number]:[]);
+ const orders=numbers.length?await prisma.order.findMany({where:{userId,orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[];
+ return linked.map(n=>{const number=candidates.find(c=>c.id===n.id)?.number;const order=orders.find(o=>o.orderNumber===number);return {...n,...(order?{actionUrl:"/orders/"+order.id}:{})};});
+};
 export const listNotifications = async (userId: string, role: UserRole, rawQuery: unknown) => {
   const { page, limit, read, type } = notificationListQuerySchema.parse(rawQuery);
   const where: Prisma.NotificationWhereInput = {
@@ -50,7 +58,7 @@ export const listNotifications = async (userId: string, role: UserRole, rawQuery
   const unreadCount = counts.get(false) ?? 0;
   const readCount = counts.get(true) ?? 0;
   const total = read === undefined ? unreadCount + readCount : counts.get(read) ?? 0;
-  return { notifications: await withReviewLinks(notifications, role), pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
+  return { notifications: await withOrderLinks(notifications, userId, role), pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
 };
 
 export const unreadCount = (userId: string, role: UserRole) =>
@@ -70,7 +78,7 @@ export const markRead = async (id: string, userId: string, role: UserRole) => {
     unreadCount(userId, role),
   ]);
   if (!notification) throw new ApiError(404, "Notification was not found", "NOTIFICATION_NOT_FOUND");
-  const [linked] = await withReviewLinks([notification], role);
+  const [linked] = await withOrderLinks([notification], userId, role);
   return { ...notification, ...(linked?.actionUrl ? { actionUrl: linked.actionUrl } : {}), unreadCount: unread };
 };
 

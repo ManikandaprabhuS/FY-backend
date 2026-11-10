@@ -9,10 +9,16 @@ export const checkoutSchema = z.object({
   couponVersion: z.number().int().positive().optional(),
   items: checkoutItemsSchema.optional(),
   userAddressId: z.string().uuid(),
+  paymentMethod: z.literal("COD"),
+  checkoutKey: z.string().uuid(),
   remark: z.string().trim().max(500).optional(),
 }).strict();
+const statusNote=z.string().trim().max(500).regex(/^[^<>]*$/,"Use plain text for the note");
+export const cancelOrderSchema=z.object({note:statusNote.optional(),expectedStatus:z.nativeEnum(OrderStatus).optional()}).strict();
 export const updateOrderStatusSchema = z.object({
-  status: z.nativeEnum(OrderStatus),
+  status: z.enum(["PLACED","PROCESSING","READY_TO_SHIP","SHIPPED","DELIVERED","CANCELLED"]),
+  expectedStatus: z.nativeEnum(OrderStatus).optional(),
+  note: statusNote.optional(),
   remark: z.string().trim().max(500).nullable().optional(),
 }).strict();
 export const orderListQuerySchema = z.object({
