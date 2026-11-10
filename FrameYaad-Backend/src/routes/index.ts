@@ -18,6 +18,7 @@ import { couponRouter } from "../modules/coupon/coupon.routes";
 import { productDiscountRouter } from "../modules/product-discount/product-discount.routes";
 import { newsletterRouter } from "../modules/newsletter/newsletter.routes";
 import { appointmentRouter } from "../modules/appointment/appointment.routes";
+import { siteMediaRouter } from "../modules/site-media/site-media.routes";
 
 export const apiRouter = Router();
 
@@ -39,3 +40,4 @@ apiRouter.use("/product-discounts", productDiscountRouter);
 apiRouter.use("/newsletter", newsletterRouter);
 apiRouter.use("/appointments", appointmentRouter);
 apiRouter.use("/reviews", reviewsRouter);
+apiRouter.use("/site-media", siteMediaRouter);
