@@ -3,7 +3,11 @@ import { z } from "zod";
 export const orderBatchSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }).strict();
 
 export const orderIdSchema = z.string().uuid();
+import { checkoutItemsSchema, offerCodeSchema } from "../checkout/checkout.schemas";
 export const checkoutSchema = z.object({
+  couponCode: offerCodeSchema.optional(),
+  couponVersion: z.number().int().positive().optional(),
+  items: checkoutItemsSchema.optional(),
   userAddressId: z.string().uuid(),
   remark: z.string().trim().max(500).optional(),
 }).strict();

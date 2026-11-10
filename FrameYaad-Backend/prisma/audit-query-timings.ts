@@ -7,8 +7,8 @@ import { listPublicCatalog } from "../src/modules/products/public-catalog.servic
 import { listCustomers, getCustomer } from "../src/modules/users/users.service";
 import { listEmployees } from "../src/modules/employees/employees.service";
 import { listOrders } from "../src/modules/orders/orders.service";
-import { listCoupons } from "../src/modules/coupon/coupon.service";
-import { list as listDiscounts } from "../src/modules/product-discount/product-discount.service";
+
+
 import { listNotifications } from "../src/modules/notifications/notifications.service";
 import { listWishlist, getWishlistAnalytics } from "../src/modules/wishlist/wishlist.service";
 import { listAppointments } from "../src/modules/appointment/appointment.service";
@@ -32,8 +32,8 @@ async function main() {
     ["Customers page", () => listCustomers({ limit: 20 })],
     ["Employees page", () => listEmployees({ limit: 20 })],
     ["Orders page + summary", () => listOrders({ limit: 20 }, id, UserRole.ADMIN)],
-    ["Coupons page", () => listCoupons({ limit: 20 })],
-    ["Product discounts page", () => listDiscounts({ limit: 20 })],
+
+
     ["Notifications page + summary", () => listNotifications(id, UserRole.ADMIN, { limit: 20 })],
     ["Wishlist page", () => listWishlist(id, { limit: 20 })],
     ["Wishlist analytics page", () => getWishlistAnalytics({ limit: 20 })],

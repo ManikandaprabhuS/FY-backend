@@ -2,6 +2,8 @@ import { OrderStatus, Prisma, UserRole } from "@prisma/client";
 import type { z } from "zod";
 
 import { prisma } from "../../prisma/client";
+import { lockOfferSettings } from "../offers/offers.service";
+import { lockOfferIdentity, offerIdentity, priceCheckoutItems, validateOffer } from "../checkout/checkout.service";
 import { assertAvailableStock } from "../../utils/stock";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
@@ -25,14 +27,22 @@ const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   CANCELLED: [],
 };
 
+const resolveLegacyOrderCoupons = async <T extends {couponId:string|null;couponTitle:string|null}>(orders:T[]):Promise<T[]> => {
+  const ids=[...new Set(orders.flatMap(o=>o.couponId&&!o.couponTitle?[o.couponId]:[]))];
+  if(!ids.length)return orders;
+  const archive=await prisma.legacyCoupon.findMany({where:{id:{in:ids}},select:{id:true,code:true}});
+  const codes=new Map(archive.map(c=>[c.id,c.code]));
+  return orders.map(o=>({...o,couponTitle:o.couponTitle??(o.couponId?codes.get(o.couponId)??o.couponId:null)}));
+};
+
 export const getOrdersBatch = (ids: string[]) => prisma.order.findMany({
   where: { id: { in: [...new Set(ids)] } }, select: orderViewSelect,
-});
+}).then(resolveLegacyOrderCoupons);
 
-const orderNumber = async (): Promise<string> => {
+const orderNumber = async (database: Pick<Prisma.TransactionClient,"order">): Promise<string> => {
   while (true) {
     const candidate = `FY-${Math.floor(1000 + Math.random() * 9000)}`;
-    const existing = await prisma.order.findUnique({
+    const existing = await database.order.findUnique({
       where: { orderNumber: candidate },
       select: { id: true },
     });
@@ -40,8 +50,20 @@ const orderNumber = async (): Promise<string> => {
   }
 };
 
-export const checkout = (userId: string, input: CheckoutInput) =>
+export const checkout = async (userId: string, input: CheckoutInput) => {
+  for (let attempt=0; ; attempt++) {
+    try { return await checkoutAttempt(userId,input); }
+    catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && attempt < 2) continue;
+      throw error;
+    }
+  }
+};
+const checkoutAttempt = (userId: string, input: CheckoutInput) =>
   prisma.$transaction(async (transaction) => {
+    if(input.couponCode)await lockOfferSettings(transaction,input.couponCode);
+    const identity = await offerIdentity(transaction,userId);
+    await lockOfferIdentity(transaction,identity.email,identity.phone);
     const address = await transaction.userAddress.findFirst({
       where: { id: input.userAddressId, userId },
       select: { id: true },
@@ -69,15 +91,15 @@ export const checkout = (userId: string, input: CheckoutInput) =>
         },
       },
     });
-    if (!cart || cart.items.length === 0) {
+    if (!input.items && (!cart || cart.items.length === 0)) {
       throw new ApiError(400, "Cart is empty", "CART_EMPTY");
     }
-    if (cart.items.some((item) => !item.product.material.isActive || (!item.selectedVariantId && !item.product.variant?.isActive))) {
+    if (!input.items && cart?.items.some((item) => !item.product.material.isActive || (!item.selectedVariantId && !item.product.variant?.isActive))) {
       throw new ApiError(409, "Cart contains an unavailable product", "CART_PRODUCT_UNAVAILABLE");
     }
 
     const requestedByVariant = new Map<string, number>();
-    const orderItems = cart.items.map((item) => {
+    const orderItems = input.items ? await priceCheckoutItems(transaction,input.items) : (cart?.items ?? []).map((item) => {
       const variant = item.selectedVariantId ? item.product.variants.find(value => value.id === item.selectedVariantId) ?? (item.product.variant?.id === item.selectedVariantId ? item.product.variant : undefined) : item.product.variant;
       if (!variant?.isActive) throw new ApiError(409, "Cart contains an unavailable variant", "CART_PRODUCT_UNAVAILABLE");
       const requested = (requestedByVariant.get(variant.id) ?? 0) + item.quantity;
@@ -101,22 +123,28 @@ export const checkout = (userId: string, input: CheckoutInput) =>
       new Prisma.Decimal(0),
     );
 
+    const offer = await validateOffer(transaction,userId,totalPrice,input.couponCode,input.couponVersion);
     const order = await transaction.order.create({
       data: {
         userId,
         userAddressId: address.id,
-        orderNumber: await orderNumber(),
-        totalPrice,
+        orderNumber: await orderNumber(transaction),
+        totalPrice: offer.total,
+        subtotal: offer.subtotal, discountAmount: offer.discountAmount, discountPercent: offer.discountPercent,
+        couponCode: offer.couponCode, couponTitle: offer.couponTitle,
+        offerEmail: offer.offerEmail, offerPhone: offer.offerPhone,
         remark: input.remark,
         items: { create: orderItems },
       },
       select: orderViewSelect,
     });
     await createOrderPlacedNotifications(transaction, order);
-    await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
-    await transaction.cart.update({ where: { id: cart.id }, data: { totalPrice: 0 } });
+    if (cart) {
+      await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
+      await transaction.cart.update({ where: { id: cart.id }, data: { totalPrice: 0 } });
+    }
     return order;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 20000 });
 
 export const listOrders = async (rawQuery: unknown, actorId: string, role: UserRole) => {
   const query = orderListQuerySchema.parse(rawQuery);
@@ -139,7 +167,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
   const counts = new Map(statusCounts.map(group => [group.status, typeof group._count === "object" ? group._count._all ?? 0 : 0]));
   const total = status ? counts.get(status) ?? 0 : [...counts.values()].reduce((sum, count) => sum + count, 0);
   return {
-    orders,
+    orders: await resolveLegacyOrderCoupons(orders),
     pagination: paginationMeta(page, limit, total),
     summary: {
       totalCount: total,
@@ -157,6 +185,7 @@ const orderExportSelect = {
   user: { select: { name: true, email: true, phoneNumber: true } },
   userAddress: orderViewSelect.userAddress,
   couponId: true,
+  couponCode: true, couponTitle: true, discountPercent: true, discountAmount: true, subtotal: true,
   items: orderViewSelect.items,
 } satisfies Prisma.OrderSelect;
 
@@ -174,7 +203,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
     orders.push(...batch);
     const couponIds = [...new Set(batch.flatMap(order => order.couponId && !couponCodes.has(order.couponId) ? [order.couponId] : []))];
     if (couponIds.length) {
-      const coupons = await prisma.coupon.findMany({ where: { id: { in: couponIds } }, select: { id: true, code: true } });
+      const coupons = await prisma.legacyCoupon.findMany({ where: { id: { in: couponIds } }, select: { id: true, code: true } });
       for (const coupon of coupons) couponCodes.set(coupon.id, coupon.code);
     }
     if (batch.length < 500) break;
@@ -191,8 +220,8 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
         totalAmount: Number(order.totalPrice), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
-        paymentStatus: "-", paymentMethod: "-", exportCoupon: order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
-        subtotal: subtotal.toNumber(), discount: Prisma.Decimal.max(0, subtotal.sub(order.totalPrice)).toNumber(),
+        paymentStatus: "-", paymentMethod: "-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
+        subtotal: Number(order.subtotal ?? subtotal), discount: Number(order.discountAmount ?? Prisma.Decimal.max(0, subtotal.sub(order.totalPrice))),
         orderItems: order.items.map(serializeOrderItem),
       };
     }),
@@ -205,7 +234,7 @@ export const getOrder = async (id: string, actorId: string, role: UserRole) => {
     select: orderViewSelect,
   });
   if (!order) throw new ApiError(404, "Order was not found", "ORDER_NOT_FOUND");
-  return order;
+  return (await resolveLegacyOrderCoupons([order]))[0]!;
 };
 
 export const updateOrderStatus = async (id: string, input: UpdateOrderStatusInput) => {

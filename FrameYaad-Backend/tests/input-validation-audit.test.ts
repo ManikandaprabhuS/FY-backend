@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { registrationSchema } from "../src/modules/auth/auth.schemas";
 import { createAdminProductPreviewSchema, createAdminVariantSchema } from "../src/modules/products/products.schemas";
-import { createCouponSchema } from "../src/modules/coupon/coupon.schemas";
+
 import { inputDateSchema } from "../src/utils/input-schemas";
 import { validateUpload } from "../src/utils/upload-validation";
 
 const variant = { frameSize: "5x5", mountType: "NONE", glassType: "NONE", price: 100, stockQuantity: 0 };
 const product = { description: "A test frame", name: "Test frame", brandName: "FrameYaad", material: "Wood", availableColors: ["Black"], variants: [variant], images: [{ imageUrl: "https://example.com/default.png", displayOrder: 1 }] };
-const coupon = { code: "TEST", couponType: "PERCENTAGE", discountType: "PERCENTAGE", discountValue: 10, startDate: "2027-01-01", endDate: "2027-12-31", expiresAt: "2027-12-31" };
+
 
 describe("invalid input audit", () => {
   it.each([0, -1, "100", null, Number.NaN, Number.POSITIVE_INFINITY, 10_000_000_000])("rejects invalid variant price %s", price => {
@@ -38,9 +38,7 @@ describe("invalid input audit", () => {
   it.each(["bad-email", "a".repeat(321) + "@example.com"])("rejects malformed emails", email => {
     expect(registrationSchema.safeParse({ name: "Test account", email, password: "example-test-only" }).success).toBe(false);
   });
-  it.each([{ discountValue: 101 }, { discountValue: -1 }, { discountValue: 0 }, { discountType: "INVALID" }, { usageLimit: 0 }, { usageLimit: -1 }, { startDate: null }, { expiresAt: "bad" }, { endDate: "2026-01-01" }])("rejects invalid coupon %j", fields => {
-    expect(createCouponSchema.safeParse({ ...coupon, ...fields }).success).toBe(false);
-  });
+
   it.each([undefined, null, "", "   "])("rejects incomplete product descriptions: %j", description => {
     expect(createAdminProductPreviewSchema.safeParse({ ...product, description }).success).toBe(false);
   });

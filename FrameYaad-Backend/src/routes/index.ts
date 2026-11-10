@@ -14,12 +14,16 @@ import { adminSearchRouter } from "../modules/admin-search/admin-search.routes";
 import { wishlistRouter } from "../modules/wishlist/wishlist.routes";
 import { notificationsRouter } from "../modules/notifications/notifications.routes";
 import { logMethodCall } from "../middleware/method-call-logger.middleware";
-import { couponRouter } from "../modules/coupon/coupon.routes";
-import { productDiscountRouter } from "../modules/product-discount/product-discount.routes";
+
+
 import { newsletterRouter } from "../modules/newsletter/newsletter.routes";
 import { appointmentRouter } from "../modules/appointment/appointment.routes";
 
+import { offersRouter } from "../modules/offers/offers.routes";
+import { checkoutRouter } from "../modules/checkout/checkout.routes";
 export const apiRouter = Router();
+apiRouter.use("/checkout", checkoutRouter);
+apiRouter.use("/offers", offersRouter);
 
 apiRouter.use(logMethodCall);
 apiRouter.use("/health", healthRouter);
@@ -34,8 +38,8 @@ apiRouter.use("/colors", colorsRouter);
 apiRouter.use("/admin", adminSearchRouter);
 apiRouter.use("/wishlist", wishlistRouter);
 apiRouter.use("/notifications", notificationsRouter);
-apiRouter.use("/coupons", couponRouter);
-apiRouter.use("/product-discounts", productDiscountRouter);
+
+
 apiRouter.use("/newsletter", newsletterRouter);
 apiRouter.use("/appointments", appointmentRouter);
 apiRouter.use("/reviews", reviewsRouter);

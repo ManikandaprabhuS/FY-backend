@@ -1,0 +1,12 @@
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "couponCode" varchar(40);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "couponTitle" varchar(80);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "discountPercent" decimal(5,2);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "discountAmount" decimal(12,2);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "subtotal" decimal(12,2);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "offerEmail" varchar(254);
+ALTER TABLE public."Order" ADD COLUMN IF NOT EXISTS "offerPhone" varchar(20);
+CREATE INDEX IF NOT EXISTS "Order_offerEmail_idx" ON public."Order" ("offerEmail");
+CREATE INDEX IF NOT EXISTS "Order_offerPhone_idx" ON public."Order" ("offerPhone");
+CREATE INDEX IF NOT EXISTS "users_offer_email_idx" ON public.users (lower(trim(email)));
+CREATE INDEX IF NOT EXISTS "users_offer_phone_idx" ON public.users ((regexp_replace(regexp_replace(COALESCE("phoneNumber",''),'[^0-9]','','g'),'^91(?=[0-9]{10}$)','')));
+CREATE INDEX IF NOT EXISTS "address_offer_phone_idx" ON public.user_address ((regexp_replace(regexp_replace(COALESCE("contactNumber",''),'[^0-9]','','g'),'^91(?=[0-9]{10}$)','')));

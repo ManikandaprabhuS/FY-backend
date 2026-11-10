@@ -10,6 +10,7 @@ export const orderViewSelect = {
   status: true,
   remark: true,
   couponId: true,
+  couponCode: true, couponTitle: true, discountPercent: true, discountAmount: true, subtotal: true,
   createdAt: true,
   updatedAt: true,
   user: { select: { id: true, name: true, email: true, phoneNumber: true } },
@@ -82,4 +83,8 @@ export const serializeOrderItem = (item: OrderView["items"][number]) => {
     },
   };
 };
-export const serializeOrderView = (order: OrderView) => ({ ...order, items: order.items.map(serializeOrderItem) });
+export const serializeOrderView = (order: OrderView) => {
+  const subtotal=order.subtotal ?? order.items.reduce((sum,item)=>sum+Number(item.subtotal),0);
+  return { ...order, subtotal:Number(subtotal), discountAmount:order.discountAmount==null?Math.max(0,Number(subtotal)-Number(order.totalPrice)):Number(order.discountAmount),
+    items:order.items.map(serializeOrderItem) };
+};

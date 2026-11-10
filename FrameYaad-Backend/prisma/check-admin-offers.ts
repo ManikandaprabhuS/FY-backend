@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {PrismaClient,type Prisma} from "@prisma/client";
+import {env} from "../src/config/env";
+const database=new PrismaClient({datasourceUrl:env.NODE_ENV==="development"?env.DIRECT_URL:env.DATABASE_URL});
+const rollback=new Error("ADMIN_OFFER_ROLLBACK");
+async function main(){
+ if(env.NODE_ENV==="production"||!process.argv.includes("--run"))throw new Error("Use --run on test only.");
+ const original=await database.offer.findMany({orderBy:{code:"asc"}});
+ const originalOrders=await database.order.aggregate({_count:true,_sum:{totalPrice:true}});
+ const originalAudit=await database.offerAudit.count();
+ try{await database.$transaction(async tx=>{
+  const wrapped=new Proxy(database,{get(_target,key):unknown{if(key==="$transaction")return(callback:(client:Prisma.TransactionClient)=>Promise<unknown>)=>callback(tx);return Reflect.get(tx,key) as unknown;}});
+  (globalThis as unknown as {prisma:PrismaClient}).prisma=wrapped;
+  const service=await import("../src/modules/offers/offers.service.js");
+  const {seedOffers}=await import("../src/modules/offers/offers.seed.js");
+  const checkout=await import("../src/modules/checkout/checkout.service.js");
+  const actor=await tx.user.findFirst({where:{role:{in:["ADMIN","EMPLOYEE"]}},select:{id:true,name:true}});
+  assert(actor,"Need a staff fixture");
+  const first=await tx.offer.findUniqueOrThrow({where:{code:"FIRST_ORDER"}});
+  const target=Number(first.percentage)===8?9:8;
+  await service.updateOffer("FIRST_ORDER",{version:first.version,percentage:target,enabled:true},actor);
+  const changed=await tx.offer.findUniqueOrThrow({where:{code:"FIRST_ORDER"}});
+  assert.equal(Number(changed.percentage),target);
+  const edited=await tx.offer.findMany({orderBy:{code:"asc"}});await seedOffers(tx);await seedOffers(tx);
+  assert.deepEqual(await tx.offer.findMany({orderBy:{code:"asc"}}),edited,"Seed must not overwrite edited settings");
+  await assert.rejects(service.updateOffer("FIRST_ORDER",{version:first.version,percentage:7},actor),{code:"OFFER_CONFLICT"});
+  const big=await tx.offer.findUniqueOrThrow({where:{code:"BIG_ORDER"}});
+  await service.updateOffer("BIG_ORDER",{version:big.version,minOrderAmount:3000,enabled:true},actor);
+  const user=await tx.user.create({data:{email:randomUUID()+"@example.invalid",name:"Rollback offer settings",phoneNumber:"8"+Date.now().toString().slice(-9),role:"CUSTOMER"},select:{id:true}});
+  const quote=await checkout.eligibleOffers(tx,user.id,3500,true);
+  assert.equal(quote.offers.find(o=>o.code==="FIRST_ORDER")?.percent,target);
+  assert(quote.offers.some(o=>o.code==="BIG_ORDER"));
+  assert(!(await checkout.eligibleOffers(tx,user.id,2900,true)).offers.some(o=>o.code==="BIG_ORDER"));
+  const firstQuote=quote.offers.find(o=>o.code==="FIRST_ORDER")!;
+  assert.equal(Number((await checkout.validateOffer(tx,user.id,2000,"FIRST_ORDER",firstQuote.version)).discountAmount),2000*target/100);
+  await assert.rejects(checkout.validateOffer(tx,user.id,2000,"FIRST_ORDER",first.version),{code:"OFFER_UNAVAILABLE"});
+  await service.updateOffer("FIRST_ORDER",{version:changed.version,enabled:false},actor);
+  await assert.rejects(checkout.validateOffer(tx,user.id,2000,"FIRST_ORDER",firstQuote.version),{code:"OFFER_UNAVAILABLE"});
+  assert(!(await checkout.eligibleOffers(tx,user.id,2000,true)).offers.length);
+  const currentBig=await tx.offer.findUniqueOrThrow({where:{code:"BIG_ORDER"}});
+  await service.updateOffer("BIG_ORDER",{version:currentBig.version,enabled:false},actor);
+  assert.equal((await checkout.eligibleOffers(tx,user.id,6000,true)).offers.length,0);
+  const history=await service.offerHistory("FIRST_ORDER");
+  assert(history.some(h=>h.actorName===actor.name&&h.field==="percentage"));
+  assert.equal((await service.listAdminOffers()).length,2);
+  console.info(JSON.stringify({livePercentage:target,liveMinimum:3000,seedPreservedEdits:true,staleEditBlocked:true,staleCheckoutBlocked:true,disabledCheckoutBlocked:true,bothDisabledHidden:true,audit:true,rollback:true}));
+  throw rollback;
+ },{timeout:120000,maxWait:10000});}catch(error){if(error!==rollback)throw error;}
+ assert.deepEqual(await database.offer.findMany({orderBy:{code:"asc"}}),original);
+ assert.deepEqual(await database.order.aggregate({_count:true,_sum:{totalPrice:true}}),originalOrders);
+ assert.equal(await database.offerAudit.count(),originalAudit);
+ console.info(JSON.stringify({offerSettingsUnchanged:true,ordersUnchanged:true,auditFixturesRolledBack:true}));
+}
+void main().catch(()=>{console.error("Admin offer integration failed; all fixture edits rolled back.");process.exitCode=1;}).finally(()=>database.$disconnect());
