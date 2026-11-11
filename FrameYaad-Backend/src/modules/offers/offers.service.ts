@@ -1,4 +1,5 @@
 import { Prisma,type Offer } from "@prisma/client";
+import {invalidateHomepageBanner} from "../home-banner/banner-cache";
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import type { z } from "zod";
@@ -51,7 +52,7 @@ export const updateOffer=async(code:string,input:z.infer<typeof updateOfferSchem
    newValue,actorId:actor.id,actorName:actor.name,
   }))});
  },{timeout:15000});
- invalidateOffers();
+ invalidateOffers();invalidateHomepageBanner();
  return (await listAdminOffers()).find(o=>o.code===code)!;
 };
 export const offerHistory=(code:string)=>prisma.offerAudit.findMany({where:{offerCode:code},orderBy:[{createdAt:"desc"},{id:"desc"}],take:20,select:{id:true,field:true,oldValue:true,newValue:true,actorName:true,createdAt:true}});

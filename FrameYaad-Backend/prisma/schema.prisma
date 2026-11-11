@@ -1,3 +1,12 @@
+model HomepageBanner {
+  id String @id @default("homepage_banner") @db.VarChar(30)
+  enabled Boolean @default(true)
+  featuredOfferCode String @default("BIG_ORDER") @db.VarChar(20)
+  updatedBy String?
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp(3)
+  @@map("homepage_banner")
+}
+
 model Offer {
   code String @id @db.VarChar(20)
   title String @db.VarChar(80)
@@ -128,6 +137,7 @@ model User {
   products          Product[]      @relation("ProductCreatedBy")
   cart              Cart?
   orders            Order[]
+  orderPhotos       OrderPhoto[]
   wishlistItems     Wishlist[]
   notifications     Notification[] @relation("NotificationRecipient")
   customerNotifications CustomerNotification[]
@@ -315,6 +325,10 @@ model Order {
   paymentMethod String? @db.VarChar(20)
   checkoutKey String? @db.VarChar(36)
   checkoutHash String? @db.VarChar(64)
+  photoId String? @unique
+  photoFileName String? @db.VarChar(110)
+  photoSizeBytes Int?
+  customerPhoto OrderPhoto? @relation("OrderPhotoAttachment")
   @@unique([userId, checkoutKey])
   @@index([userId, checkoutHash, createdAt])
 
@@ -513,3 +527,22 @@ model Review {
   @@index([effectsProcessedAt, createdAt])
   @@map("reviews")
 }
+
+model OrderPhoto {
+  id String @id @default(uuid())
+  userId String
+  orderId String? @unique
+  storagePath String
+  fileName String @db.VarChar(110)
+  mimeType String @db.VarChar(20)
+  sizeBytes Int
+  status String @default("TEMP") @db.VarChar(10)
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  attachedAt DateTime? @db.Timestamp(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  order Order? @relation("OrderPhotoAttachment", fields: [orderId], references: [id], onDelete: Restrict)
+  @@index([userId])
+  @@index([status, createdAt])
+  @@map("order_photos")
+}
+

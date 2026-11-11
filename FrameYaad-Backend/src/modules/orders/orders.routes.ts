@@ -1,5 +1,7 @@
 import { UserRole } from "@prisma/client";
 import { Router } from "express";
+import {z} from "zod";
+import {downloadPhoto} from "../order-photos/order-photos.service";
 
 import { authenticate, authorize } from "../../middleware/auth.middleware";
 import { validateBody } from "../../middleware/validate.middleware";
@@ -20,5 +22,6 @@ ordersRouter.get("/", controller.list);
 ordersRouter.get("/export", orderManagers, controller.exportReport);
 ordersRouter.get("/status-flow",controller.statusFlow);
 ordersRouter.post("/:id/cancel",customersOnly,validateBody(cancelOrderSchema),controller.cancel);
+ordersRouter.get("/:id/photo/download-url", async (req,res)=>{res.set("Cache-Control","no-store");res.json({success:true,data:await downloadPhoto(z.string().uuid().parse(req.params.id),req.auth!.user)});});
 ordersRouter.get("/:id", controller.get);
 ordersRouter.patch("/:id/status", orderManagers, validateBody(updateOrderStatusSchema), controller.updateStatus);

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import {homeBannerRouter} from "../modules/home-banner/home-banner.routes";
 import {customerNotificationsRouter} from "../modules/customer-notifications/customer-notifications.routes";
 
 import { reviewsRouter } from "../modules/reviews/reviews.routes";
@@ -23,11 +24,14 @@ import { siteMediaRouter } from "../modules/site-media/site-media.routes";
 
 import { offersRouter } from "../modules/offers/offers.routes";
 import { checkoutRouter } from "../modules/checkout/checkout.routes";
+import {orderPhotosRouter} from "../modules/order-photos/order-photos.routes";
 export const apiRouter = Router();
+apiRouter.use("/order-photos", orderPhotosRouter);
 apiRouter.use("/checkout", checkoutRouter);
 apiRouter.use("/offers", offersRouter);
 
 apiRouter.use(logMethodCall);
+apiRouter.use("/home",homeBannerRouter);
 apiRouter.use("/health", healthRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/users", usersRouter);

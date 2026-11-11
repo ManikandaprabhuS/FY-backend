@@ -883,5 +883,13 @@ Background notification retries are in-process, not a durable queue: an abrupt p
 ### Customer notification history visibility
 Fixed an empty customer drawer caused by older order events remaining in the legacy notifications table. Customer list/count/read operations now idempotently import only that customer's recent legacy order events, resolving order links against owned orders. Original read/unread state and event timestamps are preserved; existing new-inbox rows, legacy records and orders are not modified. Reads and unread events remain visible together, newest first. Cards now show an explicit Read/Unread label, full local date/time with timezone, and relative time. The compatibility import is batched, concurrent calls are shared, and checks are cached for five minutes. No schema changes.
 
+## Dynamic homepage offer banner and plant props
+Added the Homepage banner card to /admin/offers and a singleton homepage_banner setting (idempotent default: enabled, BIG_ORDER). The public /api/v1/home/banner endpoint exposes only safe live offer values, hides disabled/missing offers and checks First Order customer eligibility privately. Configuration caches for 30 seconds, invalidates on offer/banner changes, and Home refreshes while visible. Audit entries use the existing offer audit log; its field constraint now permits the two banner fields. Checkout/order calculations and stored data are unchanged.
+The Home banner is directly below the hero, shares its live preview with admin, and uses a same-height skeleton. Existing collection frames/photos/cards/links/filters are unchanged; only three generated transparent plant-and-vase props were added as compressed lazy WebP overlays.
+See the frontend repository file D:/frameYaad Admin/frameyard-admin/docs/homepage-banner.md for APIs, setup, asset paths, generation prompts and validation details.
+
+## Private customer order photos
+Added optional customer-owned JPG/PNG/WebP uploads (4 MB), a private Supabase bucket, atomic order reservation, retryable attachment, 60-second signed downloads and bounded cleanup. Local previews stay local. COD, offers, prices, statuses and old orders are unchanged. See [customer-order-photos.md](docs/customer-order-photos.md) for setup, naming, recovery, passing test results and remaining real-device checks.
+
 
 

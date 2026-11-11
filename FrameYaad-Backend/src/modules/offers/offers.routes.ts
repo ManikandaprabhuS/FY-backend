@@ -3,11 +3,21 @@ import { authenticate,staffOnly } from "../../middleware/auth.middleware";
 import { ApiError } from "../../utils/api-error";
 import { fixedOfferCode,updateOfferSchema } from "./offers.schemas";
 import { listAdminOffers,offerHistory,updateOffer } from "./offers.service";
+import {getAdminBanner,updateHomepageBanner,updateBannerSchema,requireBannerActor} from "../home-banner/home-banner.service";
 export const offersRouter=Router();
 offersRouter.use(authenticate,staffOnly);
 offersRouter.use((_req,res,next)=>{res.setHeader("Cache-Control","no-store");next();});
 const updates=new Map<string,{count:number;expires:number}>();
 offersRouter.get("/",async(_req,res)=>{res.json({success:true,data:{offers:await listAdminOffers()}});});
+const bannerUpdates=new Map<string,{count:number;expires:number}>();
+offersRouter.get("/homepage-banner",async(_req,res)=>res.json({success:true,data:{settings:await getAdminBanner()}}));
+offersRouter.patch("/homepage-banner",async(req,res)=>{
+ const actor=requireBannerActor(req.auth?.user),now=Date.now(),key=actor.id+":"+req.ip;
+ for(const [id,window]of bannerUpdates)if(window.expires<=now)bannerUpdates.delete(id);
+ const window=bannerUpdates.get(key)??{count:0,expires:now+60000};bannerUpdates.set(key,window);
+ if(++window.count>20)throw new ApiError(429,"Please wait before updating the banner again.","BANNER_RATE_LIMIT");
+ res.json({success:true,data:{settings:await updateHomepageBanner(updateBannerSchema.parse(req.body),actor)}});
+});
 offersRouter.get("/:code/history",async(req,res)=>{const code=fixedOfferCode.parse(req.params.code);res.json({success:true,data:{history:await offerHistory(code)}});});
 offersRouter.patch("/:code",async(req,res)=>{
  const actor=req.auth!.user,now=Date.now(),key=actor.id;

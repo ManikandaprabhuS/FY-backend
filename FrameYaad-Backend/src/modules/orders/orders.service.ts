@@ -1,4 +1,5 @@
 import {randomUUID, createHash} from "node:crypto";
+import {enqueuePhotoAttachment, reserveOrderPhoto} from "../order-photos/order-photos.service";
 import {createAddressSchema} from "../addresses/addresses.schemas";
 import {ORDER_STATUS_FLOW,parseStatusHistory} from "./order-status-flow";
 import { OrderStatus, Prisma, UserRole } from "@prisma/client";
@@ -47,7 +48,7 @@ const orderNumber = async (database: Pick<Prisma.TransactionClient,"order">): Pr
 
 export const checkout = async (userId: string, input: CheckoutInput) => {
   for (let attempt=0; ; attempt++) {
-    try { const order=await checkoutAttempt(userId,input);enqueueOrderPlacedEffects(order.id);return order; }
+    try { const order=await checkoutAttempt(userId,input);enqueueOrderPlacedEffects(order.id);enqueuePhotoAttachment(order.id);return order; }
     catch(error) {
       if(error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2034" || (error.code==="P2002"&&String(error.meta?.target).includes("checkoutKey"))) && attempt < 2) continue;
       throw error;
@@ -59,7 +60,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
     // Stable request keys make network retries safe, including after the cart is cleared.
     const checkoutHash=createHash("sha256").update(JSON.stringify({
       address:input.userAddressId, payment:input.paymentMethod, coupon:input.couponCode??null,
-      version:input.couponVersion??null, remark:input.remark??null,
+      version:input.couponVersion??null, remark:input.remark??null, ...(input.photoId?{photoId:input.photoId}:{}),
       items:input.items?.map(item=>({productIdentifier:item.productIdentifier,variantId:item.variantId,quantity:item.quantity,colorName:item.colorName??null,colorHex:item.colorHex??null})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))??null
     })).digest("hex");
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"checkout:"+userId}))::text`;
@@ -137,11 +138,13 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
 
     if(!totalPrice.isFinite()||totalPrice.lte(0))throw new ApiError(400,"Order total must be greater than zero.","INVALID_ORDER_TOTAL");
     const offer = await validateOffer(transaction,userId,totalPrice,input.couponCode,input.couponVersion);
+    const photo = await reserveOrderPhoto(transaction, userId, input.photoId);
     const placedAt=new Date();
     const order = await transaction.order.create({
       data: {
         userId,
         createdAt:placedAt, paymentMethod:input.paymentMethod, checkoutKey:input.checkoutKey, checkoutHash,
+        photoId: photo?.id, photoFileName: photo?.fileName, photoSizeBytes: photo?.sizeBytes,
         statusHistory:[{status:"PLACED",changedAt:placedAt.toISOString(),changedBy:{id:userId,role:UserRole.CUSTOMER}}],
         userAddressId: address.id,
         orderNumber: await orderNumber(transaction),
@@ -154,6 +157,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
       },
       select: orderViewSelect,
     });
+    if (photo) await transaction.orderPhoto.update({ where: { id: photo.id }, data: { orderId: order.id, status: "ATTACHED", attachedAt: placedAt } });
     // Notifications are queued only after this transaction commits.
     if (cart) {
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
@@ -197,6 +201,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 };
 
 const orderExportSelect = {
+  photoFileName:true, photoSizeBytes:true,
   id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true, paymentMethod:true,
   user: { select: { name: true, email: true, phoneNumber: true } },
   userAddress: orderViewSelect.userAddress,
@@ -234,6 +239,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
       const subtotal = order.items.reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0));
       return {
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
+        photoUploaded: Boolean(order.photoFileName), photoFileName: order.photoFileName,
         totalAmount: Number(order.totalPrice), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
         paymentStatus: "-", paymentMethod: order.paymentMethod??"-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",

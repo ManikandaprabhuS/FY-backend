@@ -13,6 +13,7 @@ const environmentSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DIRECT_URL: z.string().min(1),
   SUPABASE_URL: z.url(),
+  SUPABASE_PHOTO_BUCKET: z.literal("customer-photos").default("customer-photos"),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   RESEND_API_KEY: z.string().min(1).optional(),

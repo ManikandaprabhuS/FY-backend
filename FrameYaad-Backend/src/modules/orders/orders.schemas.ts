@@ -5,6 +5,7 @@ export const orderBatchSchema = z.object({ ids: z.array(z.string().uuid()).min(1
 export const orderIdSchema = z.string().uuid();
 import { checkoutItemsSchema, offerCodeSchema } from "../checkout/checkout.schemas";
 export const checkoutSchema = z.object({
+  photoId: z.string().uuid().optional(),
   couponCode: offerCodeSchema.optional(),
   couponVersion: z.number().int().positive().optional(),
   items: checkoutItemsSchema.optional(),
