@@ -19,6 +19,7 @@ import { logMethodCall } from "../middleware/method-call-logger.middleware";
 
 import { newsletterRouter } from "../modules/newsletter/newsletter.routes";
 import { appointmentRouter } from "../modules/appointment/appointment.routes";
+import { siteMediaRouter } from "../modules/site-media/site-media.routes";
 
 import { offersRouter } from "../modules/offers/offers.routes";
 import { checkoutRouter } from "../modules/checkout/checkout.routes";
@@ -45,3 +46,4 @@ apiRouter.use("/customer-notifications",customerNotificationsRouter);
 apiRouter.use("/newsletter", newsletterRouter);
 apiRouter.use("/appointments", appointmentRouter);
 apiRouter.use("/reviews", reviewsRouter);
+apiRouter.use("/site-media", siteMediaRouter);
