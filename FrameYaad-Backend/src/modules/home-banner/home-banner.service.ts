@@ -10,7 +10,8 @@ export const seedHomepageBanner=(db:Prisma.TransactionClient=prisma)=>db.homepag
 export const getAdminBanner=async()=>{
  const settings=await prisma.homepageBanner.findUniqueOrThrow({where:{id:BANNER_ID}});
  const updater=settings.updatedBy?await prisma.user.findUnique({where:{id:settings.updatedBy},select:{id:true,name:true}}):null;
- return {...settings,updatedBy:updater};
+ const {bannerImagePath:_path,...safe}=settings;void _path;
+ return {...safe,updatedBy:updater};
 };
 export const updateHomepageBanner=async(input:z.infer<typeof updateBannerSchema>,actor:{id:string;name:string})=>{
  await prisma.$transaction(async tx=>{
@@ -27,11 +28,11 @@ export const updateHomepageBanner=async(input:z.infer<typeof updateBannerSchema>
 };
 export const publicHomepageBanner=async(actor?:{id:string;role:UserRole}):Promise<BannerOffer|null>=>{
  const config=await cachedBannerConfig(async()=>{
-  const setting=await prisma.homepageBanner.findUnique({where:{id:BANNER_ID},select:{enabled:true,featuredOfferCode:true}});
+  const setting=await prisma.homepageBanner.findUnique({where:{id:BANNER_ID},select:{enabled:true,featuredOfferCode:true,bannerImageUrl:true}});
   if(!setting?.enabled)return {enabled:false,offer:null};
   const offer=await prisma.offer.findUnique({where:{code:setting.featuredOfferCode},select:{code:true,title:true,enabled:true,percentage:true,minOrderAmount:true}});
   if(!offer?.enabled||!["FIRST_ORDER","BIG_ORDER"].includes(offer.code))return {enabled:true,offer:null};
-  return {enabled:true,offer:{code:offer.code as BannerOffer["code"],title:offer.title,percentage:Number(offer.percentage),minOrderAmount:offer.minOrderAmount===null?null:Number(offer.minOrderAmount)}};
+  return {enabled:true,offer:{bannerImageUrl:setting.bannerImageUrl??null,code:offer.code as BannerOffer["code"],title:offer.title,percentage:Number(offer.percentage),minOrderAmount:offer.minOrderAmount===null?null:Number(offer.minOrderAmount)}};
  });
  if(!config.enabled||!config.offer)return null;
  if(config.offer.code==="FIRST_ORDER"&&actor?.role===UserRole.CUSTOMER){

@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import {resolvePhotoContext} from "../order-photos/photo-context";
+import {DEFAULT_PHOTO_MAX_MB} from "../../utils/photo-limits";
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { assertAvailableStock } from "../../utils/stock";
@@ -84,11 +86,12 @@ export const getCheckoutOffers=async(userId:string,items?:CheckoutItem[],include
   let summaryItems:Parameters<NonNullable<Parameters<typeof priceCheckoutItems>[2]>>[0]=[];
   const rowsPromise=selections.length?priceCheckoutItems(prisma,selections,includeItems?value=>{summaryItems=value;}:undefined):Promise.resolve([]);
   const totalsPromise=rowsPromise.then(rows=>offerTotals(rows.reduce((sum,i)=>sum.add(i.subtotal),new Prisma.Decimal(0))));
-  const [totals,eligibility,addresses]=await Promise.all([
+  const [totals,eligibility,addresses,photoLimit]=await Promise.all([
     totalsPromise,eligibleOffers(prisma,userId,totalsPromise.then(value=>value.subtotal)),
-    prisma.userAddress.findMany({where:{userId},select:{id:true,addressLine:true,city:true,state:true,country:true,postalCode:true,contactPerson:true,contactNumber:true}})
+    prisma.userAddress.findMany({where:{userId},select:{id:true,addressLine:true,city:true,state:true,country:true,postalCode:true,contactPerson:true,contactNumber:true}}),
+    selections.length?resolvePhotoContext(prisma,userId,selections):Promise.resolve({maxAllowedMB:DEFAULT_PHOTO_MAX_MB,limitingItem:null})
   ]);
-  return {...(includeItems?{items:summaryItems,defaultAddress:addresses[0]??null}:{}),offers:totals.subtotal.gt(0)?eligibility.offers:[],unavailableOffers:totals.subtotal.gt(0)?eligibility.unavailableOffers:[],subtotal:totals.subtotal.toNumber(),addresses,bigOrderRemovalMessage:eligibility.bigOrderRemovalMessage};
+  return {photoLimit,...(includeItems?{items:summaryItems,defaultAddress:addresses[0]??null}:{}),offers:totals.subtotal.gt(0)?eligibility.offers:[],unavailableOffers:totals.subtotal.gt(0)?eligibility.unavailableOffers:[],subtotal:totals.subtotal.toNumber(),addresses,bigOrderRemovalMessage:eligibility.bigOrderRemovalMessage};
 };
 export const validateOffer=async(db:DB,userId:string,subtotal:Prisma.Decimal.Value,code?:OfferCode,version?:number)=>{
   const eligibility=await eligibleOffers(db,userId,subtotal,true);

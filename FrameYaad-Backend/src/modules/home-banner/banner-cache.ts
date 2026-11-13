@@ -1,4 +1,4 @@
-export type BannerOffer={code:"BIG_ORDER"|"FIRST_ORDER";title:string;percentage:number;minOrderAmount:number|null};
+export type BannerOffer={bannerImageUrl?:string|null;code:"BIG_ORDER"|"FIRST_ORDER";title:string;percentage:number;minOrderAmount:number|null};
 export type BannerConfig={enabled:boolean;offer:BannerOffer|null};
 let generation=0,cached:{until:number;value:BannerConfig}|undefined;
 let pending:{generation:number;promise:Promise<BannerConfig>}|undefined;

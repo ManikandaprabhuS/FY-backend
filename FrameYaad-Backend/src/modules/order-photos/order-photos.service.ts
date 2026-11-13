@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import {getPhotoMaxBytes,photoSizeError,PHOTO_MB_BYTES} from "../../utils/photo-limits";
+import {resolvePhotoContext} from "./photo-context";
 import {cleanupPhotoOrphans} from "./photo-orphans";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma/client";
@@ -21,8 +23,10 @@ export async function lockCustomerPhotos(tx: Prisma.TransactionClient, userId: s
 export async function getTempPhoto(userId: string) {
   return prisma.orderPhoto.findFirst({ where: { userId, status: "TEMP", orderId: null }, select: photoInfoSelect });
 }
-export async function uploadPhoto(userId: string, file?: Express.Multer.File) {
+export async function uploadPhoto(userId: string, file?: Express.Multer.File, context?:unknown) {
   if (!file) throw new ApiError(400, "Please choose a photo.", "PHOTO_REQUIRED");
+  const limits = await resolvePhotoContext(prisma,userId,context);
+  if(file.buffer.length>limits.maxBytes)throw new ApiError(413,photoSizeError(file.buffer.length,limits.maxBytes),"PHOTO_TOO_LARGE",{maxAllowedMB:limits.maxAllowedMB});
   const type = verifiedPhotoType(file.buffer);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });
   let uploadedPath: string | undefined;
@@ -44,7 +48,7 @@ export async function uploadPhoto(userId: string, file?: Express.Multer.File) {
       }
       // Persist replacement before deleting the old object, so failed DB writes preserve the old photo.
       if (old) await tx.orderPhoto.delete({ where: { id: old.id } });
-      const created = await tx.orderPhoto.create({ data: { id: randomUUID(), userId, fileName, storagePath, mimeType: type.mimeType, sizeBytes: file.size, status: "TEMP" }, select: photoInfoSelect });
+      const created = await tx.orderPhoto.create({ data: { id: randomUUID(), userId, fileName, storagePath, mimeType: type.mimeType, sizeBytes: file.size, maxAllowedMB:limits.maxAllowedMB, status: "TEMP" }, select: photoInfoSelect });
       return { created, oldPath: old?.storagePath };
     }, { timeout: 30000, maxWait: 10000 });
     committed = true;
@@ -72,12 +76,14 @@ export async function clearTempPhoto(userId: string, id: string) {
   // Unreferenced objects are swept after 24 hours if this compensating removal is interrupted.
   await removeQuietly(storagePath);
 }
-export async function reserveOrderPhoto(tx: Prisma.TransactionClient, userId: string, photoId?: string) {
+export async function reserveOrderPhoto(tx: Prisma.TransactionClient, userId: string, photoId?: string, variants:ReadonlyArray<{maxPhotoSizeMB?:number|null}>=[]) {
   if (!photoId) return null;
   await lockCustomerPhotos(tx, userId);
   const photo = await tx.orderPhoto.findFirst({ where: { id: photoId, userId, status: "TEMP", orderId: null } });
   if (!photo) throw new ApiError(400, "Please upload your photo again or remove it before placing this order.", "INVALID_ORDER_PHOTO");
-  return photo;
+  const maxBytes=getPhotoMaxBytes(variants);
+  if(photo.sizeBytes>maxBytes)throw new ApiError(400,photoSizeError(photo.sizeBytes,maxBytes)+" Please clear or replace your photo.","PHOTO_LIMIT_CHANGED",{maxAllowedMB:Number((maxBytes/PHOTO_MB_BYTES).toFixed(1))});
+  return {...photo,maxAllowedMB:Number((maxBytes/PHOTO_MB_BYTES).toFixed(1))};
 }
 export async function finishPhotoAttachment(orderId: string) {
   const photo = await prisma.orderPhoto.findUnique({ where: { orderId } });

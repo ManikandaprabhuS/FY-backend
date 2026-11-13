@@ -12,7 +12,7 @@ beforeEach(()=>{
  m.identity.mockResolvedValue({email:"customer@example.invalid",phone:"9876543210"});m.history.mockResolvedValue(false);
 });
 it("returns only live safe fields and shares only the non-personal configuration cache",async()=>{
- expect(await publicHomepageBanner()).toEqual({code:"BIG_ORDER",title:"Big Order Offer",percentage:10,minOrderAmount:5000});
+ expect(await publicHomepageBanner()).toEqual({bannerImageUrl:null,code:"BIG_ORDER",title:"Big Order Offer",percentage:10,minOrderAmount:5000});
  await publicHomepageBanner();expect(m.setting).toHaveBeenCalledTimes(1);expect(m.offer).toHaveBeenCalledTimes(1);
 });
 it.each(["banner-off","offer-off","offer-missing"])("returns no banner for %s",async mode=>{

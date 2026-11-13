@@ -186,7 +186,7 @@ export const createAdminProductPreview = async (
     });
     const variants = input.variants.map(item => ({
         id: randomUUID(),
-        productId: product.id, imageUrl: item.imageUrl, color: item.color ?? input.availableColors[0] ?? "Standard", frameSize: item.frameSize,
+        productId: product.id, maxPhotoSizeMB: item.maxPhotoSizeMB, imageUrl: item.imageUrl, color: item.color ?? input.availableColors[0] ?? "Standard", frameSize: item.frameSize,
         mountType: item.mountType, glassType: item.glassType, stockQuantity: item.stockQuantity,
         mrp: item.price, price: item.offerPrice ?? item.price, isActive: input.isActive, createdById: actorId,
     }));
@@ -221,6 +221,7 @@ export const updateAdminProductPreview = async (
         data: {
           color: primaryVariant.color ?? undefined,
           imageUrl: primaryVariant.imageUrl,
+          maxPhotoSizeMB: primaryVariant.maxPhotoSizeMB,
           frameSize: primaryVariant.frameSize,
           mountType: primaryVariant.mountType,
           glassType: primaryVariant.glassType,
@@ -256,6 +257,7 @@ export const updateAdminVariant = async (id: string, input: UpdateAdminVariantIn
     data: {
       color: input.color ?? undefined,
       imageUrl: input.imageUrl,
+      maxPhotoSizeMB: input.maxPhotoSizeMB,
       frameSize: input.frameSize,
       mountType: input.mountType,
       glassType: input.glassType,
@@ -268,7 +270,7 @@ export const updateAdminVariant = async (id: string, input: UpdateAdminVariantIn
 export const createAdminVariant = async (productId: string, input: CreateAdminVariantInput, actorId: string, role: UserRole) => {
   const product = await getProduct(productId, role);
   const variant = await prisma.variant.create({ data: {
-    productId, imageUrl: input.imageUrl, color: input.color ?? product.material.availableColors[0] ?? "Standard", frameSize: input.frameSize,
+    productId, maxPhotoSizeMB: input.maxPhotoSizeMB, imageUrl: input.imageUrl, color: input.color ?? product.material.availableColors[0] ?? "Standard", frameSize: input.frameSize,
     mountType: input.mountType, glassType: input.glassType, stockQuantity: input.stockQuantity,
     mrp: input.price, price: input.offerPrice ?? input.price, createdById: actorId, isActive: product.material.isActive,
   }});

@@ -1,4 +1,6 @@
 model HomepageBanner {
+  bannerImageUrl String?
+  bannerImagePath String?
   id String @id @default("homepage_banner") @db.VarChar(30)
   enabled Boolean @default(true)
   featuredOfferCode String @default("BIG_ORDER") @db.VarChar(20)
@@ -202,6 +204,7 @@ model Material {
 }
 
 model Variant {
+  maxPhotoSizeMB Float? @db.DoublePrecision
   imageUrl        String?
   id              String            @id @default(uuid())
   productId       String?           @map("productId")
@@ -529,6 +532,7 @@ model Review {
 }
 
 model OrderPhoto {
+  maxAllowedMB Float? @db.DoublePrecision
   id String @id @default(uuid())
   userId String
   orderId String? @unique

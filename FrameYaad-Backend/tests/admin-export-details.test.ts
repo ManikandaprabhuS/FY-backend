@@ -16,8 +16,8 @@ describe("complete product exports", () => {
     mocks.products.mockResolvedValue([product(1, [variant, { ...variant, id: "v2", frameSize: "8x10" }]), product(2, [])]);
     const rows = await collect(productExportRows({ search: " Frame ", isActive: "true" }));
     expect(rows).toHaveLength(3);
-    expect(rows[0]).toEqual(["1", "Frame", "FrameYaad", "A frame", "Active", "Oak", "-", "09/11/2026", "INR 449.00", "10% OFF", 6, "variant-1", "5x5", "Black", "#000000", "INR 500.00", "INR 449.00", 3, "Active"]);
-    expect(rows[2]?.slice(11)).toEqual(["", "", "", "", "", "", "", ""]);
+    expect(rows[0]).toEqual(["1", "Frame", "FrameYaad", "A frame", "Active", "Oak", "-", "09/11/2026", "INR 449.00", "10% OFF", 6, "variant-1", "5x5", "Black", "#000000", "INR 500.00", "INR 449.00", 3, "Active", 4]);
+    expect(rows[2]?.slice(11)).toEqual(["", "", "", "", "", "", "", "", ""]);
     expect(mocks.products.mock.calls[0]?.[0]).toMatchObject({ where: { material: { isActive: true }, OR: [{ productName: { contains: "Frame", mode: "insensitive" } }, { productIdentifier: { contains: "Frame", mode: "insensitive" } }] } });
     expect(productExportHeaders).toHaveLength(rows[0]!.length);
   });

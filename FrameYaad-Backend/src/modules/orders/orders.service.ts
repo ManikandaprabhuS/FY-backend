@@ -138,7 +138,8 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
 
     if(!totalPrice.isFinite()||totalPrice.lte(0))throw new ApiError(400,"Order total must be greater than zero.","INVALID_ORDER_TOTAL");
     const offer = await validateOffer(transaction,userId,totalPrice,input.couponCode,input.couponVersion);
-    const photo = await reserveOrderPhoto(transaction, userId, input.photoId);
+    const photoVariants=input.photoId?await transaction.variant.findMany({where:{id:{in:[...new Set(orderItems.flatMap(item=>item.snapshotVariantId?[item.snapshotVariantId]:[]))]}},select:{maxPhotoSizeMB:true}}):[];
+    const photo = await reserveOrderPhoto(transaction, userId, input.photoId, photoVariants);
     const placedAt=new Date();
     const order = await transaction.order.create({
       data: {
@@ -157,7 +158,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
       },
       select: orderViewSelect,
     });
-    if (photo) await transaction.orderPhoto.update({ where: { id: photo.id }, data: { orderId: order.id, status: "ATTACHED", attachedAt: placedAt } });
+    if (photo) await transaction.orderPhoto.update({ where: { id: photo.id }, data: { orderId: order.id, status: "ATTACHED", attachedAt: placedAt, maxAllowedMB:photo.maxAllowedMB } });
     // Notifications are queued only after this transaction commits.
     if (cart) {
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });

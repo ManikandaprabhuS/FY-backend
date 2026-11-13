@@ -3,7 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   auth: vi.fn(), user: vi.fn(), transaction: vi.fn(), find: vi.fn(), findFirst: vi.fn(), create: vi.fn(), removeRecord: vi.fn(), update: vi.fn(),
-  upload: vi.fn(), remove: vi.fn(), copy: vi.fn(), list: vi.fn(), signed: vi.fn(), order: vi.fn(), raw: vi.fn(),
+  upload: vi.fn(), remove: vi.fn(), copy: vi.fn(), list: vi.fn(), signed: vi.fn(), order: vi.fn(), raw: vi.fn(), cart:vi.fn(), variants:vi.fn(),
 }));
 vi.mock("../src/config/supabase", () => ({
   supabaseAdmin: {auth: {getUser: m.auth}, storage: {from: () => ({upload:m.upload,remove:m.remove,copy:m.copy,list:m.list,createSignedUrl:m.signed})}},
@@ -12,7 +12,7 @@ vi.mock("../src/config/supabase", () => ({
 vi.mock("../src/prisma/client", () => ({prisma: {
   user:{findUnique:m.user,findUniqueOrThrow:m.user,update:vi.fn()},
   orderPhoto:{findFirst:m.findFirst,findUnique:m.find,create:m.create,delete:m.removeRecord,update:m.update},
-  order:{findUnique:m.order},$transaction:m.transaction,
+  order:{findUnique:m.order},cart:{findUnique:m.cart},variant:{findMany:m.variants},$transaction:m.transaction,
 }}));
 import {app} from "../src/app";
 import {uploadPhoto, reserveOrderPhoto, downloadPhoto, finishPhotoAttachment, enqueuePhotoAttachment} from "../src/modules/order-photos/order-photos.service";
@@ -31,6 +31,7 @@ beforeEach(()=>{
  vi.clearAllMocks();rows=[];objects=new Set();
  m.auth.mockResolvedValue({data:{user:{id:owner,email_confirmed_at:"2026-01-01",phone_confirmed_at:null}},error:null});
  m.user.mockResolvedValue(profile());
+ m.cart.mockResolvedValue(null);m.variants.mockResolvedValue([]);
  m.findFirst.mockImplementation(({where}:{where:{id?:string;userId?:string;status?:string;orderId?:null}})=>Promise.resolve(rows.find(p=>(!where.id||p.id===where.id)&&(!where.userId||p.userId===where.userId)&&(!where.status||p.status===where.status)&&(where.orderId!==null||p.orderId===null))??null));
  m.find.mockImplementation(({where}:{where:{orderId:string}})=>Promise.resolve(rows.find(p=>p.orderId===where.orderId)??null));
  m.create.mockImplementation(({data}:{data:Photo})=>{const p={...data,orderId:null};rows.push(p);return Promise.resolve(p);});
@@ -51,7 +52,7 @@ describe("photo naming and bytes",()=>{
  it.each(["../../etc/passwd.png","a/b\\c.jpg","photo.jpg.exe","\u0000<>& தமிழ்.png"])("prevents traversal and unsafe names: %s",name=>expect(photoFileName(" /<Mani> /",name,"png")).toMatch(/^FY-[A-Za-z0-9_-]+\.png$/));
  it("handles Tamil, whitespace, empty and long profile names",()=>{expect(sanitizePhotoPart(" தமிழ் ",30,"Customer")).toBe("Customer");expect(sanitizePhotoPart(" Mani  Kumar ",30,"Customer")).toBe("Mani-Kumar");expect(sanitizePhotoPart("x".repeat(100),30,"Customer")).toHaveLength(30);expect(photoFileName("","...","jpg")).toBe("FY-Customer-photo.jpg");});
  it.each([Buffer.alloc(0),Buffer.from("MZ executable"),Buffer.from("%PDF"),Buffer.from("<svg/>"),Buffer.from("GIF89a"),png.subarray(0,30)])("rejects empty, non-images and damaged images",bytes=>expect(()=>verifiedPhotoType(bytes)).toThrow());
- it("accepts exactly 4 MB and rejects 4 MB plus one byte",()=>{expect(verifiedPhotoType(Buffer.concat([jpg,Buffer.alloc(PHOTO_MAX_BYTES-jpg.length)])).ext).toBe("jpg");expect(()=>verifiedPhotoType(Buffer.alloc(PHOTO_MAX_BYTES+1))).toThrow(expect.objectContaining({statusCode:413}));});
+ it("validates the absolute 10 MB byte cap independently of per-cart limits",()=>{expect(verifiedPhotoType(Buffer.concat([jpg,Buffer.alloc(PHOTO_MAX_BYTES-jpg.length)])).ext).toBe("jpg");expect(()=>verifiedPhotoType(Buffer.alloc(PHOTO_MAX_BYTES+1))).toThrow(expect.objectContaining({statusCode:413}));});
 });
 describe("authenticated multipart API",()=>{
  it.each([[jpg,"test.jpg"],[png,"test.png"],[webp,"test.webp"]])("uploads a supported file without disclosing private paths",async(buffer,name)=>{
@@ -62,7 +63,7 @@ describe("authenticated multipart API",()=>{
  it("requires login",async()=>expect((await request(app).post("/api/v1/order-photos").attach("photo",png,"test.png")).status).toBe(401));
  it.each(["ADMIN","EMPLOYEE"])("rejects %s uploads",async role=>{m.user.mockResolvedValue(profile(role));expect((await request(app).post("/api/v1/order-photos").set(headers).attach("photo",png,"x.png")).status).toBe(403);});
  it("rejects missing file",async()=>expect((await request(app).post("/api/v1/order-photos").set(headers)).status).toBe(400));
- it("accepts a multipart photo of exactly 4 MB",async()=>expect((await request(app).post("/api/v1/order-photos").set(headers).attach("photo",Buffer.concat([jpg,Buffer.alloc(PHOTO_MAX_BYTES-jpg.length)]),"exact.jpg")).status).toBe(201));
+ it("accepts a multipart photo of exactly 4 MB",async()=>expect((await request(app).post("/api/v1/order-photos").set(headers).attach("photo",Buffer.concat([jpg,Buffer.alloc(4*1024*1024-jpg.length)]),"exact.jpg")).status).toBe(201));
  it("rejects oversized multipart with 413",async()=>expect((await request(app).post("/api/v1/order-photos").set(headers).attach("photo",Buffer.alloc(PHOTO_MAX_BYTES+1),"big.png")).status).toBe(413));
  it("replaces the previous TEMP file and suffixes the same name",async()=>{const a=await uploadPhoto(owner,file()),b=await uploadPhoto(owner,file());expect(a.imageId).not.toBe(b.imageId);expect(b.fileName).toMatch(/-2\.png$/);expect(rows).toHaveLength(1);expect(objects.size).toBe(1);});
  it("clears only the owner's TEMP record",async()=>{const p=await uploadPhoto(owner,file());expect((await request(app).delete("/api/v1/order-photos/"+p.imageId).set(headers)).status).toBe(200);expect(rows).toHaveLength(0);expect(objects.size).toBe(0);});

@@ -1,12 +1,13 @@
 import { ApiError } from "../../utils/api-error";
-export const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+import {MAX_PHOTO_MAX_MB,PHOTO_MB_BYTES} from "../../utils/photo-limits";
+export const PHOTO_MAX_BYTES = MAX_PHOTO_MAX_MB * PHOTO_MB_BYTES;
 export const PHOTO_MIMES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const sanitizePhotoPart = (value: string, limit: number, fallback: string): string =>
   value.trim().replace(/\s+/g, "-").replace(/[^A-Za-z0-9_-]/g, "").replace(/-+/g, "-").replace(/^-+|-+$/g, "").slice(0, limit) || fallback;
 
 export function verifiedPhotoType(bytes: Buffer): { mimeType: string; ext: string } {
   if (!bytes.length) throw new ApiError(400, "Please choose a non-empty photo.", "PHOTO_EMPTY");
-  if (bytes.length > PHOTO_MAX_BYTES) throw new ApiError(413, "Photo must be 4 MB or smaller", "PHOTO_TOO_LARGE");
+  if (bytes.length > PHOTO_MAX_BYTES) throw new ApiError(413, ("Photo must be "+MAX_PHOTO_MAX_MB+" MB or smaller"), "PHOTO_TOO_LARGE");
   if (bytes.length >= 33 && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) {
     let offset = 8, header = false, data = false, end = false;
     while (offset + 12 <= bytes.length) {

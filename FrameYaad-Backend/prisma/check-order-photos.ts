@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import {prisma} from "../src/prisma/client";
 import {supabaseAdmin} from "../src/config/supabase";
 import {env} from "../src/config/env";
+import {MAX_PHOTO_MAX_MB,PHOTO_MB_BYTES} from "../src/utils/photo-limits";
 import {uploadPhoto,clearTempPhoto} from "../src/modules/order-photos/order-photos.service";
 async function main(){
  if(!process.argv.includes("--run")||env.NODE_ENV==="production")throw new Error("Use --run on a test database.");
@@ -23,7 +24,7 @@ async function main(){
   const response=await fetch(signed.data.signedUrl);
   if(!response.ok||!(response.headers.get("content-disposition")??"").includes(photo.fileName))throw new Error("Download invariant failed");
   const bucket=await supabaseAdmin.storage.getBucket(env.SUPABASE_PHOTO_BUCKET);
-  if(bucket.data?.public!==false||Number(bucket.data.file_size_limit)!==4194304)throw new Error("Privacy invariant failed");
+  if(bucket.data?.public!==false||Number(bucket.data.file_size_limit)!==MAX_PHOTO_MAX_MB*PHOTO_MB_BYTES)throw new Error("Privacy invariant failed");
   await clearTempPhoto(id,second.imageId);
   if(await prisma.orderPhoto.count({where:{userId:id}}))throw new Error("Clear invariant failed");
   const after=await prisma.order.aggregate({_count:true,_sum:{totalPrice:true}});

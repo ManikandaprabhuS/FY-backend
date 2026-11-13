@@ -30,6 +30,7 @@ export const productViewSelect = {
       mountType: true,
       glassType: true,
       stockQuantity: true,
+      maxPhotoSizeMB: true,
       mrp: true,
       price: true,
       isActive: true,

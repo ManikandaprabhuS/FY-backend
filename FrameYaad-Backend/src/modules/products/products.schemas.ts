@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { plainText } from "../../utils/input-schemas";
+import {photoLimitValidation} from "../../utils/photo-limits";
+const maxPhotoSizeSchema = z.preprocess(value=>value===""?null:value,z.number().nullable().optional().superRefine((value,context)=>{const issue=photoLimitValidation(value);if(issue)context.addIssue({code:"custom",message:issue});}));
 const priceSchema = z.number().positive("Price must be greater than zero").max(9_999_999_999.99);
 const stockSchema = z.number().int().nonnegative().max(2_147_483_647);
 const colorsSchema = z.array(plainText(1, 80)).min(1).max(20).refine(
@@ -38,6 +40,7 @@ export const createAdminProductPreviewSchema = z.object({
   isActive: z.boolean().default(true),
   images: gallerySchema,
   variants: z.array(z.object({
+    maxPhotoSizeMB: maxPhotoSizeSchema,
     imageUrl: imageUrl.nullable().optional(),
     color: plainText(1, 80).optional().nullable(),
     frameSize: plainText(1, 80),
@@ -50,6 +53,7 @@ export const createAdminProductPreviewSchema = z.object({
 }).strict();
 
 const adminVariantFields = {
+  maxPhotoSizeMB: maxPhotoSizeSchema,
   imageUrl: imageUrl.nullable().optional(),
   color: plainText(1, 80).optional().nullable(),
   frameSize: plainText(1, 80).optional(),
@@ -79,6 +83,7 @@ export const updateAdminVariantSchema = z.object(adminVariantFields).strict().re
 );
 
 export const createAdminVariantSchema = z.object({
+  maxPhotoSizeMB: maxPhotoSizeSchema,
   imageUrl: imageUrl.nullable().optional(),
   color: plainText(1, 80).optional().nullable(),
   frameSize: plainText(1, 80),

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { UserRole } from "@prisma/client";
 import { authenticate, authorize } from "../../middleware/auth.middleware";
 import { ApiError } from "../../utils/api-error";
+import {MAX_PHOTO_MAX_MB} from "../../utils/photo-limits";
 import { PHOTO_MAX_BYTES } from "./photo-file";
 import { clearTempPhoto, getTempPhoto, uploadPhoto } from "./order-photos.service";
 export const orderPhotosRouter = Router();
@@ -19,9 +20,9 @@ export const photoRateLimit: RequestHandler = (req, _res, next) => {
   }
   next();
 };
-const parser = multer({ storage: multer.memoryStorage(), limits: { fileSize: PHOTO_MAX_BYTES + 1, files: 1, fields: 0, parts: 2 } }).single("photo");
+const parser = multer({ storage: multer.memoryStorage(), limits: { fileSize: PHOTO_MAX_BYTES + 1, files: 1, fields: 1, fieldSize: 65536, parts: 3 } }).single("photo");
 const parsePhoto: RequestHandler = (req, res, next) => parser(req, res, error => {
-  if (error instanceof multer.MulterError) next(new ApiError(error.code === "LIMIT_FILE_SIZE" ? 413 : 400, error.code === "LIMIT_FILE_SIZE" ? "Photo must be 4 MB or smaller" : "Upload one photo using the photo field.", "INVALID_PHOTO_UPLOAD"));
+  if (error instanceof multer.MulterError) next(new ApiError(error.code === "LIMIT_FILE_SIZE" ? 413 : 400, error.code === "LIMIT_FILE_SIZE" ? ("Photo must be "+MAX_PHOTO_MAX_MB+" MB or smaller") : "Upload one photo using the photo field.", "INVALID_PHOTO_UPLOAD"));
   else next(error as unknown);
 });
 orderPhotosRouter.use(authenticate, authorize(UserRole.CUSTOMER), (_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
@@ -29,7 +30,12 @@ orderPhotosRouter.get("/temp", async (req, res) => {
   const photo = await getTempPhoto(req.auth!.user.id);
   res.json({ success: true, data: photo ? { imageId: photo.id, fileName: photo.fileName, sizeBytes: photo.sizeBytes } : null });
 });
-orderPhotosRouter.post("/", photoRateLimit, parsePhoto, async (req, res) => res.status(201).json({ success: true, data: await uploadPhoto(req.auth!.user.id, req.file) }));
+orderPhotosRouter.post("/", photoRateLimit, parsePhoto, async (req, res) => {
+ const body=z.object({items:z.string().optional()}).strict().parse(req.body??{});
+ let context:unknown;
+ if(body.items!==undefined){try{context=JSON.parse(body.items) as unknown;}catch{throw new ApiError(400,"Invalid photo cart context.","INVALID_PHOTO_CONTEXT");}}
+ res.status(201).json({success:true,data:await uploadPhoto(req.auth!.user.id,req.file,context)});
+});
 orderPhotosRouter.delete("/:imageId", photoRateLimit, async (req, res) => {
   await clearTempPhoto(req.auth!.user.id, z.string().uuid().parse(req.params.imageId));
   res.json({ success: true, data: null });
