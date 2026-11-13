@@ -936,3 +936,26 @@ The bucket remains private. JPG/PNG/WebP, magic-byte validation, non-empty file 
 - Shared helper sources are byte-identical. Builds/types and backend lint pass. Changed frontend limit components pass focused lint; ProductDetailsPage retains two pre-existing synchronous-effect lint findings outside this change.
 - Mobile/admin/checkout fixture checked at 320/375/768/1440px: no overflow or console errors/warnings, optional 1–10 MB input, default text and limiting-item note readable.
 - Full frontend suite: 225/230 pass; the same five unrelated header/collection/review failures remain untouched. No real customer order was created just for testing; a full real-device customer checkout walkthrough remains a final user acceptance check.
+
+## Cancellation revenue and manual refund status (13 November 2026)
+
+Cancellation is still allowed only from PLACED or PROCESSING. Admin/employee cancellation requires the amount warning and accepts an optional plain-text reason. New cancellations save cancelledBy (admin/customer), cancelledAt and cancellationReason, while the existing status history retains the authenticated actor ID/role. Retrying a cancellation returns the existing result; totals are never decremented through a stored counter.
+
+Revenue is computed from current orders whose status is not CANCELLED. The shared backend orders/revenue helper is used by the Overview card/chart/count, fresh revenue PDF, and filtered Orders export summary. Cancelled orders remain in list/export results with their original amount and an Excluded from revenue label. Refund changes never affect revenue. Overview uses current backend data rather than the first 100 paginated orders; it refreshes on local/cross-tab order events and polls every 15 seconds while visible. No server revenue cache is retained; browser order caches are invalidated after mutations. A cancellation is removed from its original order-date chart bucket. Revenue counts and averages exclude cancellations.
+
+Cancellation effects run asynchronously using stable status-event IDs and upserts. Customers receive the store cancellation message. The shared staff inbox (visible to all ADMIN/EMPLOYEE users, never customers) receives a red bold ORDER_CANCELLED notification with order ID, customer, amount and staff name where applicable, linking to the exact order. Existing optimistic mark-as-read behaviour is unchanged. Delivery retries are bounded; notification failure never rolls back cancellation.
+
+Manual refunds: null -> INITIATED -> COMPLETED, or null -> COMPLETED with explicit confirmation. COMPLETED is final. Only authenticated ADMIN/EMPLOYEE can call PATCH /api/v1/orders/:id/refund; customers/guests are rejected. The endpoint verifies CANCELLED status, compares the expected refund status atomically, stores actor/timestamps, and appends refundHistory. Repeats are idempotent. INITIATED/COMPLETED customer notifications use the matching polite message and stable audit-event ID. Customer trackers infer the canceller from legacy status history when new metadata is absent. Refund badges/dates appear in Orders lists/details, CSV and the existing table PDF.
+
+Approved nullable Order additions: cancelledBy, cancelledAt, cancellationReason, refundStatus, refundInitiatedAt, refundCompletedAt, refundUpdatedBy, refundHistory. The notification enum gains ORDER_CANCELLED. The idempotent setup-order-refunds script was applied; historical rows were not backfilled and existing order count/amount aggregates were verified unchanged. No Prisma migration was generated. The database check allows refund states only on CANCELLED orders.
+
+Important: these are MANUAL refund tracking controls, not a transfer/payment integration. Per the approved requirement, cancellation/refund instructions also apply to COD orders; staff must verify whether money was actually collected before sending a refund.
+
+Verification:
+- Backend: 580 tests passed, including 21 new cancellation/refund/revenue/auth tests; lint, TypeScript, build and Prisma validation pass.
+- Frontend: new refund/message/control tests pass, affected order/tracker/filter/PDF regressions pass; production build passes.
+- Full frontend regression baseline: only the five previously documented unrelated header/collection/review failures remain (241/246 before the additional visual-fixture test).
+- Existing OrdersPage effect lint error and dependency warning predate this work; new components/helpers pass scoped lint.
+- Browser fixture checked at 320px and 1440px: no horizontal overflow, readable refund badges, dates and messages, no console warnings/errors. This was a disposable component fixture, not an authenticated real-order mutation.
+- No real order was cancelled, marked refunded, or otherwise edited during verification. Staff/customer end-to-end acceptance against real orders remains for your test account.
+- Backend left stopped so you can start exactly one instance with npm run dev.

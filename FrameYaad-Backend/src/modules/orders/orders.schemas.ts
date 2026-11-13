@@ -25,8 +25,15 @@ export const updateOrderStatusSchema = z.object({
 export const orderListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  refundStatus: z.enum(["NONE","INITIATED","COMPLETED"]).optional(),
   status: z.nativeEnum(OrderStatus).optional(),
   userId: z.string().uuid().optional(),
   search: z.string().trim().max(120).optional(),
   dateFilter: z.enum(["all", "today", "7", "30", "90", "365"]).default("all"),
 });
+
+export const updateRefundSchema=z.object({
+ status:z.enum(["INITIATED","COMPLETED"]),
+ expectedRefundStatus:z.enum(["INITIATED","COMPLETED"]).nullable(),
+ confirmCompleted:z.boolean().optional(),
+}).strict();

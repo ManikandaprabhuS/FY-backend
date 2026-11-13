@@ -69,6 +69,7 @@ enum OrderStatus {
 enum NotificationType {
   ACCOUNT_CREATED
   ORDER_PLACED
+  ORDER_CANCELLED
   INFO @map("info")
   SUCCESS @map("success")
 
@@ -325,6 +326,14 @@ model Order {
   offerEmail String? @db.VarChar(254)
   offerPhone String? @db.VarChar(20)
   statusHistory Json? @db.JsonB
+  cancelledBy String? @db.VarChar(10)
+  cancelledAt DateTime? @db.Timestamp(3)
+  cancellationReason String? @db.VarChar(500)
+  refundStatus String? @db.VarChar(10)
+  refundInitiatedAt DateTime? @db.Timestamp(3)
+  refundCompletedAt DateTime? @db.Timestamp(3)
+  refundUpdatedBy String?
+  refundHistory Json? @db.JsonB
   paymentMethod String? @db.VarChar(20)
   checkoutKey String? @db.VarChar(36)
   checkoutHash String? @db.VarChar(64)

@@ -1,3 +1,7 @@
+import {revenueReport} from "./revenue";
+import {updateRefund,enqueueRefundNotification} from "./order-refunds";
+import {updateRefundSchema} from "./orders.schemas";
+import {serializeOrderView} from "./orders.select";
 import { UserRole } from "@prisma/client";
 import { Router } from "express";
 import {z} from "zod";
@@ -20,6 +24,8 @@ ordersRouter.post("/batch", orderManagers, validateBody(orderBatchSchema), contr
 ordersRouter.get("/customer-summary",customersOnly,async(req,res)=>{res.setHeader("Cache-Control","no-store");res.json({success:true,data:await listCustomerOrderSummaries(req.auth!.user.id,req.query)});});
 ordersRouter.get("/", controller.list);
 ordersRouter.get("/export", orderManagers, controller.exportReport);
+ordersRouter.get("/revenue",orderManagers,async(req,res)=>{res.setHeader("Cache-Control","no-store");res.json({success:true,data:await revenueReport(req.query)});});
+ordersRouter.patch("/:id/refund",orderManagers,validateBody(updateRefundSchema),async(req,res)=>{const order=await updateRefund(z.string().uuid().parse(req.params.id),updateRefundSchema.parse(req.body),req.auth!.user);res.json({success:true,data:{order:serializeOrderView(order)}});enqueueRefundNotification(order);});
 ordersRouter.get("/status-flow",controller.statusFlow);
 ordersRouter.post("/:id/cancel",customersOnly,validateBody(cancelOrderSchema),controller.cancel);
 ordersRouter.get("/:id/photo/download-url", async (req,res)=>{res.set("Cache-Control","no-store");res.json({success:true,data:await downloadPhoto(z.string().uuid().parse(req.params.id),req.auth!.user)});});

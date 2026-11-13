@@ -10,6 +10,7 @@ export const orderViewSelect = {
   totalPrice: true, paymentMethod: true,
   status: true,
   statusHistory: true,
+  cancelledBy:true,cancelledAt:true,cancellationReason:true,refundStatus:true,refundInitiatedAt:true,refundCompletedAt:true,refundUpdatedBy:true,refundHistory:true,
   remark: true,
   couponId: true,
   couponCode: true, couponTitle: true, discountPercent: true, discountAmount: true, subtotal: true,

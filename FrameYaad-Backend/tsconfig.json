@@ -31,7 +31,7 @@
     "prisma/check-customer-performance.ts",
     "prisma/apply-homepage-banner.ts",
     "prisma/setup-order-photos.ts",
-    "prisma/setup-variant-photo-limits.ts",
+    "prisma/setup-order-refunds.ts", "prisma/setup-variant-photo-limits.ts",
     "prisma/check-variant-photo-limits.ts",
     "prisma/setup-banner-images.ts",
     "prisma/check-banner-images.ts",

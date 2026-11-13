@@ -31,6 +31,7 @@ export async function buildOrderWhere(query: z.infer<typeof orderListQuerySchema
   const where: Prisma.OrderWhereInput = {
     ...(role === UserRole.CUSTOMER ? { userId: actorId } : userId ? { userId } : {}),
     ...(status ? { status } : {}),
+    ...(query.refundStatus?{refundStatus:query.refundStatus==="NONE"?null:query.refundStatus}:{}),
     ...(start ? { createdAt: { gte: start } } : {}),
   };
   if (search) {

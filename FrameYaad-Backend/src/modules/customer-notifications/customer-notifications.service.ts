@@ -5,13 +5,13 @@ import {ApiError} from "../../utils/api-error";
 import {paginationMeta} from "../../utils/pagination";
 import {z} from "zod";
 const recent=()=>new Date(Date.now()-90*86400000);
-export const notifyCustomer=async(userId:string,event:string,data:{eventId:string;orderId:string;orderNumber:string;status?:string;createdAt?:Date})=>{
+export const notifyCustomer=async(userId:string,event:string,data:{eventId:string;orderId:string;orderNumber:string;status?:string;createdAt?:Date;message?:string;title?:string})=>{
  const cancelled=data.status==="Cancelled";
  const placed=event==="ORDER_PLACED";
  const title=placed?"Order placed":cancelled?"Order cancelled":"Order status updated";
  const message=placed?"Your order "+data.orderNumber+" has been placed.":"Your order "+data.orderNumber+" is now "+data.status+".";
  // Future email-channel integration belongs here; this function sends no email.
- await prisma.customerNotification.upsert({where:{id:data.eventId},create:{id:data.eventId,userId,type:cancelled?"ORDER_CANCELLED":event,title,message,orderId:data.orderId,createdAt:data.createdAt??new Date()},update:{}});
+ await prisma.customerNotification.upsert({where:{id:data.eventId},create:{id:data.eventId,userId,type:cancelled?"ORDER_CANCELLED":event,title:data.title??title,message:data.message??message,orderId:data.orderId,createdAt:data.createdAt??new Date()},update:{}});
 };
 export const customerUnreadCount=async(userId:string)=>{
  await importLegacyCustomerOrderNotifications(userId);

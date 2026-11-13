@@ -1,3 +1,4 @@
+import {revenueSummary} from "./revenue";
 import {randomUUID, createHash} from "node:crypto";
 import {enqueuePhotoAttachment, reserveOrderPhoto} from "../order-photos/order-photos.service";
 import {createAddressSchema} from "../addresses/addresses.schemas";
@@ -202,7 +203,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 };
 
 const orderExportSelect = {
-  photoFileName:true, photoSizeBytes:true,
+  photoFileName:true, photoSizeBytes:true, refundStatus:true,refundInitiatedAt:true,refundCompletedAt:true,
   id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true, paymentMethod:true,
   user: { select: { name: true, email: true, phoneNumber: true } },
   userAddress: orderViewSelect.userAddress,
@@ -231,15 +232,16 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
     if (batch.length < 500) break;
     cursor = batch[batch.length - 1]!.id;
   }
-  const total = orders.reduce((sum, order) => sum.add(order.totalPrice), new Prisma.Decimal(0));
+  const summary=revenueSummary(orders);
   return {
     range: [orderRangeLabels[query.dateFilter], query.status ? "Status: " + query.status.replaceAll("_", " ") : "", query.search ? "Search: " + query.search : ""].filter(Boolean).join(" | "),
     generatedAt: new Date().toISOString(),
-    summary: { totalRevenue: total.toNumber(), orderCount: orders.length, averageOrderValue: orders.length ? total.div(orders.length).toNumber() : 0 },
+    summary,
     orders: orders.map(order => {
       const subtotal = order.items.reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0));
       return {
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
+        refundStatus:order.refundStatus,refundInitiatedAt:order.refundInitiatedAt,refundCompletedAt:order.refundCompletedAt,excludedFromRevenue:order.status==="CANCELLED",
         photoUploaded: Boolean(order.photoFileName), photoFileName: order.photoFileName,
         totalAmount: Number(order.totalPrice), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
@@ -266,6 +268,7 @@ export const updateOrderStatus = async (id:string,input:UpdateOrderStatusInput,a
   return prisma.$transaction(async tx=>{
     const existing=await tx.order.findFirst({where:{id,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},select:{id:true,status:true,statusHistory:true}});
     if(!existing)throw new ApiError(404,"Order was not found","ORDER_NOT_FOUND");
+    if(existing.status==="CANCELLED"&&input.status==="CANCELLED")return tx.order.findUniqueOrThrow({where:{id},select:orderViewSelect});
     if(input.expectedStatus&&input.expectedStatus!==existing.status)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
     if(!(ORDER_STATUS_FLOW.transitions[existing.status]??[]).includes(input.status)){
       const message=input.status==="CANCELLED"&&ORDER_STATUS_FLOW.cancellationMessageStatuses.some(s=>s===existing.status)
@@ -275,7 +278,7 @@ export const updateOrderStatus = async (id:string,input:UpdateOrderStatusInput,a
     const note=input.note??input.remark??undefined;
     const entry={status:input.status,previousStatus:existing.status,changedAt:new Date().toISOString(),changedBy:{id:actor.id,role:actor.role},...(note?{note}:{}),eventId:randomUUID()};
     const changed=await tx.order.updateMany({where:{id,status:existing.status,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},
-      data:{status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
+      data:{...(input.status==="CANCELLED"?{cancelledBy:actor.role===UserRole.CUSTOMER?"customer":"admin",cancelledAt:new Date(entry.changedAt),cancellationReason:note??null}:{}),status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
     if(!changed.count)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
     return tx.order.findUniqueOrThrow({where:{id},select:orderViewSelect});
   },{timeout:15000});

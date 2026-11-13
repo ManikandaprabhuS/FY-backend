@@ -31,7 +31,12 @@ const withReviewLinks = async <T extends { id: string; title: string }>(notifica
 
 const withOrderLinks=async<T extends {id:string;title:string;message:string}>(notifications:T[],userId:string,role:UserRole)=>{
  const linked=await withReviewLinks(notifications,role);
- if(role!==UserRole.CUSTOMER)return linked;
+ if(role!==UserRole.CUSTOMER){
+  const cancellations=notifications.filter(n=>n.title==="Order cancelled").map(n=>({id:n.id,number:n.message.match(/^Order (FY-[A-Za-z0-9_-]+) by /)?.[1]}));
+  const numbers=cancellations.flatMap(n=>n.number?[n.number]:[]);
+  const orders=numbers.length?await prisma.order.findMany({where:{orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[];
+  return linked.map(n=>{const order=orders.find(o=>o.orderNumber===cancellations.find(c=>c.id===n.id)?.number);return {...n,...(order?{actionUrl:"/admin/orders?search="+encodeURIComponent(order.orderNumber)+"&openOrder="+order.id}:{})};});
+ }
  const candidates=notifications.filter(n=>n.title==="Order status updated").map(n=>({id:n.id,number:n.message.match(/^Your order (FY-[A-Za-z0-9_-]+) is now /)?.[1]}));
  const numbers=candidates.flatMap(n=>n.number?[n.number]:[]);
  const orders=numbers.length?await prisma.order.findMany({where:{userId,orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[];
