@@ -3,6 +3,7 @@ import { resolveLegacyColor } from "../colors/colors.values";
 
 export const orderViewSelect = {
   photoId: true, photoFileName: true, photoSizeBytes: true,
+  customerPhoto:{select:{status:true,deletedAt:true,deletedByName:true}},
   id: true,
   orderNumber: true,
   userId: true,
@@ -88,6 +89,7 @@ export const serializeOrderItem = (item: OrderView["items"][number]) => {
 };
 export const serializeOrderView = (order: OrderView) => {
   const subtotal=order.subtotal ?? order.items.reduce((sum,item)=>sum+Number(item.subtotal),0);
-  return { ...order, subtotal:Number(subtotal), discountAmount:order.discountAmount==null?Math.max(0,Number(subtotal)-Number(order.totalPrice)):Number(order.discountAmount),
+  const photoDeleted=order.customerPhoto?.status==="DELETED";
+  return { ...order,photoDeleted,photoDeletedAt:order.customerPhoto?.deletedAt??null,photoDeletedBy:order.customerPhoto?.deletedByName??null, subtotal:Number(subtotal), discountAmount:order.discountAmount==null?Math.max(0,Number(subtotal)-Number(order.totalPrice)):Number(order.discountAmount),
     items:order.items.map(serializeOrderItem) };
 };

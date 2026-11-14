@@ -86,8 +86,12 @@ export async function reserveOrderPhoto(tx: Prisma.TransactionClient, userId: st
   return {...photo,maxAllowedMB:Number((maxBytes/PHOTO_MB_BYTES).toFixed(1))};
 }
 export async function finishPhotoAttachment(orderId: string) {
-  const photo = await prisma.orderPhoto.findUnique({ where: { orderId } });
-  if (!photo) return;
+  const owner = await prisma.orderPhoto.findUnique({ where: { orderId } });
+  if(!owner||owner.status!=="ATTACHED")return;
+  await prisma.$transaction(async tx=>{
+  await lockCustomerPhotos(tx,owner.userId);
+  const photo=await tx.orderPhoto.findFirst({where:{orderId,status:"ATTACHED"}});
+  if (!photo || photo.status!=="ATTACHED" || !photo.storagePath) return;
   const destination = photo.userId + "/" + orderId + "/" + photo.fileName;
   if (destination === photo.storagePath) return;
   const copied = await bucket().copy(photo.storagePath, destination);
@@ -95,8 +99,9 @@ export async function finishPhotoAttachment(orderId: string) {
     const { data, error } = await bucket().list(photo.userId + "/" + orderId, { search: photo.fileName, limit: 100 });
     if (error || !data.some(item => item.name === photo.fileName)) throw unavailable();
   }
-  await prisma.orderPhoto.update({ where: { id: photo.id }, data: { storagePath: destination } });
+  await tx.orderPhoto.update({ where: { id: photo.id }, data: { storagePath: destination } });
   const removed = await bucket().remove([photo.storagePath]); check(removed.error);
+  },{timeout:30000,maxWait:10000});
 }
 export function enqueuePhotoAttachment(orderId: string) {
   void finishPhotoAttachment(orderId).catch(() => logger.warn({ event: "photo_attachment_pending" }, "Order saved; private photo attachment will retry"));
@@ -104,6 +109,7 @@ export function enqueuePhotoAttachment(orderId: string) {
 export async function downloadPhoto(orderId: string, actor: { id: string; role: string }) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true, customerPhoto: true } });
   if (!order || (actor.role === "CUSTOMER" && order.userId !== actor.id) || !["CUSTOMER", "ADMIN", "EMPLOYEE"].includes(actor.role)) throw new ApiError(404, "Order photo not found.", "PHOTO_NOT_FOUND");
+  if(order.customerPhoto?.status==="DELETED")throw new ApiError(410,"Photo removed after order completion.","PHOTO_DELETED");
   if (!order.customerPhoto) throw new ApiError(404, "No photo was uploaded for this order.", "PHOTO_NOT_FOUND");
   try {
     const { data, error } = await bucket().createSignedUrl(order.customerPhoto.storagePath, 60, { download: order.customerPhoto.fileName });

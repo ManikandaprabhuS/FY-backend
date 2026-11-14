@@ -3,6 +3,8 @@ import { z } from "zod";
 
 const environmentSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  DB_SIZE_LIMIT_MB: z.preprocess(v=>v===""?undefined:v,z.coerce.number().positive().finite().optional()),
+  STORAGE_LIMIT_MB: z.preprocess(v=>v===""?undefined:v,z.coerce.number().positive().finite().optional()),
   PORT: z.coerce.number().int().positive().max(65_535).default(5000),
   API_PREFIX: z.string().startsWith("/").default("/api/v1"),
   FRONTEND_URL: z.url(),

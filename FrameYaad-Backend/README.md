@@ -959,3 +959,32 @@ Verification:
 - Browser fixture checked at 320px and 1440px: no horizontal overflow, readable refund badges, dates and messages, no console warnings/errors. This was a disposable component fixture, not an authenticated real-order mutation.
 - No real order was cancelled, marked refunded, or otherwise edited during verification. Staff/customer end-to-end acceptance against real orders remains for your test account.
 - Backend left stopped so you can start exactly one instance with npm run dev.
+
+## Delivered/Cancelled photo cleanup and storage usage (14 November 2026)
+
+Staff can open /admin/photo-cleanup. The backend requires an authenticated ADMIN or EMPLOYEE for listing, deletion and usage metrics; customer/guest requests are rejected. Only ATTACHED photos belonging to DELIVERED or CANCELLED orders are listed. Search, terminal-status/date filters and pagination run on the server; count and reclaimable size cover all matching records. Completion dates come from cancelledAt or the matching status-history event, not refund updates. Old records with no known terminal timestamp show "-" and are excluded by a completion-date filter rather than inventing dates. Date filter boundaries use Asia/Calcutta calendar days.
+
+Deletion is PERMANENT: download first if needed. The UI requires confirmation and deletes only selected IDs (maximum 50 per API request), with optimistic removal, per-item results, rollback of failures and count/size toasts. The backend rechecks terminal order status under the existing customer-photo advisory lock, removes the private Supabase object first, then retains its record as a DELETED tombstone. storagePath is cleared to an empty string; fileName/size/order association remain historical metadata. deletedAt, deletedBy and deletedByName preserve the deletion actor and name snapshot. Missing storage files are safe to mark deleted, and repeat requests do not double-count or duplicate audit records. If storage succeeds but the DB transaction fails, retrying completes the tombstone safely. Attachment retries share the same lock and never recreate DELETED photos. Existing TEMP retention/cleanup rules are unchanged. No notifications were added.
+
+photo_cleanup_audit records the authenticated actor ID/name, time, order IDs, per-item count and tracked bytes reclaimed, grouped by batchId. Each photo has one successful deletion audit. The audit table has RLS enabled and direct anonymous/authenticated access revoked. Existing orders, amounts and photo snapshots are not rewritten; order responses derive photoDeleted from the associated record. Admin details show deletion date/name; customer details hide download and show "Photo removed after order completion." The download URL API returns 410 for an authorized viewer of a deleted photo (other customers still receive 404). CSV/PDF photo columns show Deleted.
+
+Overview has one Storage widget backed by GET /api/v1/admin/storage-usage. It reads actual Postgres database allocation through a fixed-search-path, read-only SECURITY DEFINER function with public/anon/authenticated EXECUTE revoked. Photo storage is the sum of sizeBytes on non-DELETED order_photos (TEMP and ATTACHED), not a Supabase billing inventory. Banners and orphaned objects are intentionally excluded; the widget states this. Pending cleanup count/bytes link to the new page. Results are cached for 5 minutes, Refresh bypasses the cache, and successful cleanup invalidates it. A failed individual size read displays Unavailable without breaking Overview.
+
+Optional backend environment settings (also listed blank in .env.example):
+- DB_SIZE_LIMIT_MB: your actual database capacity in MB.
+- STORAGE_LIMIT_MB: the photo capacity you want to monitor in MB.
+Both must be positive numbers when set. No plan limits were guessed or hardcoded. Blank/unset shows usage and "Limit not configured", without a percentage bar. Bars turn amber ABOVE 80% and red ABOVE 95%. MB uses 1,048,576 bytes; GB uses 1,073,741,824 bytes. Deleting photos reduces the tracked photo total; database allocation need not shrink, since tombstones/audits remain and Postgres retains allocated pages.
+
+Setup/deployment:
+- Nullable tombstone fields, private audit table, status checks and restricted helper functions were applied to the configured database using prisma/setup-photo-cleanup.ts --apply.
+- Run npx tsx prisma/setup-photo-cleanup.ts --apply on any separate deployment database before deploying this version, then regenerate Prisma with the backend stopped.
+- npx tsx prisma/check-photo-cleanup.ts is a read-only verification of list queries, sizes, function permissions and unchanged photo counts/bytes.
+- No Prisma migration was generated. No existing customer file or photo row was deleted during setup or testing.
+
+Verification:
+- 598 backend tests pass (55 files), including terminal-only deletion, per-item mixed failures, missing files, storage/DB failure retry, idempotency, audit, 410/ownership, cache invalidation and ADMIN/EMPLOYEE versus customer/guest access.
+- Backend lint, typecheck, build and Prisma validation pass. Live DB checks were read-only and passed.
+- Frontend production build and scoped new-file lint pass; all five new cleanup UI tests pass. Full frontend: 246/252 pass; six unrelated header/collection/review failures remain, including the header fixture's outdated fy-logo-mark asset stub. Those components were not changed.
+- Disposable component fixture checked at 320px, 768px and 1440px: readable cards/table/widget, full-width mobile search, no document overflow and no console errors.
+- Destructive storage calls were tested with mocks only. Real-file deletion and authenticated end-to-end deletion should be verified by you with a disposable photo after downloading anything needed.
+- The temporary verification server was stopped; the backend remains stopped to avoid duplicate port-5000 processes.

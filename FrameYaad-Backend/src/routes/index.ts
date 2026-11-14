@@ -1,3 +1,4 @@
+import {photoCleanupRouter} from "../modules/photo-cleanup/photo-cleanup.routes";
 import { Router } from "express";
 import {homeBannerRouter} from "../modules/home-banner/home-banner.routes";
 import {customerNotificationsRouter} from "../modules/customer-notifications/customer-notifications.routes";
@@ -27,6 +28,7 @@ import { checkoutRouter } from "../modules/checkout/checkout.routes";
 import {orderPhotosRouter} from "../modules/order-photos/order-photos.routes";
 import {bannerImageRouter} from "../modules/home-banner/banner-image.routes";
 export const apiRouter = Router();
+apiRouter.use("/admin",photoCleanupRouter);
 apiRouter.use("/admin/homepage-banner/image",bannerImageRouter);
 apiRouter.use("/order-photos", orderPhotosRouter);
 apiRouter.use("/checkout", checkoutRouter);

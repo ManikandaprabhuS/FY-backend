@@ -203,7 +203,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 };
 
 const orderExportSelect = {
-  photoFileName:true, photoSizeBytes:true, refundStatus:true,refundInitiatedAt:true,refundCompletedAt:true,
+  customerPhoto:{select:{status:true}},photoFileName:true, photoSizeBytes:true, refundStatus:true,refundInitiatedAt:true,refundCompletedAt:true,
   id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true, paymentMethod:true,
   user: { select: { name: true, email: true, phoneNumber: true } },
   userAddress: orderViewSelect.userAddress,
@@ -242,7 +242,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
       return {
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
         refundStatus:order.refundStatus,refundInitiatedAt:order.refundInitiatedAt,refundCompletedAt:order.refundCompletedAt,excludedFromRevenue:order.status==="CANCELLED",
-        photoUploaded: Boolean(order.photoFileName), photoFileName: order.photoFileName,
+        photoDeleted:order.customerPhoto?.status==="DELETED",photoUploaded: Boolean(order.photoFileName), photoFileName: order.photoFileName,
         totalAmount: Number(order.totalPrice), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
         paymentStatus: "-", paymentMethod: order.paymentMethod??"-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",

@@ -546,6 +546,9 @@ model OrderPhoto {
   userId String
   orderId String? @unique
   storagePath String
+  deletedAt DateTime? @db.Timestamp(3)
+  deletedBy String?
+  deletedByName String?
   fileName String @db.VarChar(110)
   mimeType String @db.VarChar(20)
   sizeBytes Int
@@ -557,5 +560,20 @@ model OrderPhoto {
   @@index([userId])
   @@index([status, createdAt])
   @@map("order_photos")
+}
+
+
+model PhotoCleanupAudit {
+ id String @id @default(uuid())
+ batchId String
+ actorId String
+ actorName String
+ orderIds String[]
+ photoId String @unique
+ count Int
+ bytesFreed Int
+ createdAt DateTime @default(now()) @db.Timestamp(3)
+ @@index([createdAt(sort: Desc)])
+ @@map("photo_cleanup_audit")
 }
 
