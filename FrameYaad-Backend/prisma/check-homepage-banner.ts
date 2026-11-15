@@ -36,15 +36,13 @@ async function main(){
   const phone="8"+Date.now().toString().slice(-9);
   const owner=await tx.user.create({data:{name:"Banner test owner",email:randomUUID()+"@example.invalid",phoneNumber:phone,role:"CUSTOMER"}});
   const byEmail=await tx.user.create({data:{name:"Banner test email",email:randomUUID()+"@example.invalid",role:"CUSTOMER"}});
-  const byPhone=await tx.user.create({data:{name:"Banner test phone",email:randomUUID()+"@example.invalid",phoneNumber:"+91 "+phone,role:"CUSTOMER"}});
-  assert.equal((await banner.publicHomepageBanner({id:byEmail.id,role:"CUSTOMER"}))?.code,"FIRST_ORDER");
+  assert.equal((await banner.publicHomepageBanner())?.code,"FIRST_ORDER");
   const address=await tx.userAddress.create({data:{userId:owner.id,addressLine:"Temporary banner test",postalCode:"600040",city:"Chennai",state:"Tamil Nadu",country:"India",contactPerson:"Banner test",contactNumber:phone}});
   await tx.order.create({data:{userId:owner.id,userAddressId:address.id,orderNumber:"B-"+randomUUID(),totalPrice:100,offerEmail:byEmail.email,offerPhone:phone}});
-  assert.equal(await banner.publicHomepageBanner({id:byEmail.id,role:"CUSTOMER"}),null);
-  assert.equal(await banner.publicHomepageBanner({id:byPhone.id,role:"CUSTOMER"}),null);
+  assert.equal((await banner.publicHomepageBanner())?.code,"FIRST_ORDER");
   assert.equal((await banner.publicHomepageBanner())?.code,"FIRST_ORDER");
   assert((await tx.offerAudit.count({where:{field:{startsWith:"banner."},actorId:actor.id}}))>0);
-  console.info(JSON.stringify({livePercentage:12,liveMinimum:3000,bannerOffHidden:true,offerOffHidden:true,seedPreservedEdits:true,guestsVisible:true,newCustomerVisible:true,emailHistoryHidden:true,phoneHistoryHidden:true,audit:true}));
+  console.info(JSON.stringify({livePercentage:12,liveMinimum:3000,bannerOffHidden:true,offerOffHidden:true,seedPreservedEdits:true,guestsVisible:true,newCustomerVisible:true,historyDoesNotHideBanner:true,audit:true}));
   throw rollback;
  },{timeout:120000});}catch(error){if(error!==rollback)throw error;}
  assert.deepEqual(await database.homepageBanner.findMany(),originalSettings);

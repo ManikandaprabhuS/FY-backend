@@ -2,7 +2,6 @@ import {Prisma} from "@prisma/client";
 import {beforeEach,expect,it,vi} from "vitest";
 const m=vi.hoisted(()=>({setting:vi.fn(),offer:vi.fn(),get:vi.fn(),user:vi.fn(),seed:vi.fn(),transaction:vi.fn(),update:vi.fn(),audit:vi.fn(),identity:vi.fn(),history:vi.fn()}));
 vi.mock("../src/prisma/client",()=>({prisma:{homepageBanner:{findUnique:m.setting,findUniqueOrThrow:m.get,createMany:m.seed},offer:{findUnique:m.offer},user:{findUnique:m.user},$transaction:m.transaction}}));
-vi.mock("../src/modules/home-banner/banner-eligibility",()=>({bannerHasOrderHistory:m.history}));
 import {publicHomepageBanner,updateHomepageBanner,seedHomepageBanner,updateBannerSchema} from "../src/modules/home-banner/home-banner.service";
 import {invalidateHomepageBanner} from "../src/modules/home-banner/banner-cache";
 beforeEach(()=>{
@@ -21,14 +20,11 @@ it.each(["banner-off","offer-off","offer-missing"])("returns no banner for %s",a
  if(mode==="offer-missing")m.offer.mockResolvedValue(null);
  expect(await publicHomepageBanner()).toBeNull();
 });
-it("First Order is visible to guests/new customers but eligibility is checked freshly per customer",async()=>{
+it("First Order marketing content is never gated by customer history",async()=>{
  m.setting.mockResolvedValue({enabled:true,featuredOfferCode:"FIRST_ORDER"});
  m.offer.mockResolvedValue({code:"FIRST_ORDER",title:"First Order Offer",enabled:true,percentage:new Prisma.Decimal(5),minOrderAmount:null});
- expect((await publicHomepageBanner())?.percentage).toBe(5);expect(m.history).not.toHaveBeenCalled();
- expect((await publicHomepageBanner({id:"new",role:"CUSTOMER"}))?.code).toBe("FIRST_ORDER");
- m.history.mockResolvedValueOnce(true);expect(await publicHomepageBanner({id:"returning",role:"CUSTOMER"})).toBeNull();
- expect((await publicHomepageBanner({id:"another-new",role:"CUSTOMER"}))?.code).toBe("FIRST_ORDER");
- expect(m.history).toHaveBeenCalledWith("returning");
+ for(let i=0;i<3;i++)expect((await publicHomepageBanner())?.code).toBe("FIRST_ORDER");
+ expect(m.history).not.toHaveBeenCalled();expect(m.identity).not.toHaveBeenCalled();
 });
 it("invalidating after offer changes reads updated percentages/minimums immediately",async()=>{
  await publicHomepageBanner();m.offer.mockResolvedValue({code:"BIG_ORDER",title:"Big Order Offer",enabled:true,percentage:new Prisma.Decimal(12),minOrderAmount:new Prisma.Decimal(3000)});

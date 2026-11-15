@@ -2,7 +2,6 @@ import {type Prisma,UserRole} from "@prisma/client";
 import {z} from "zod";
 import {prisma} from "../../prisma/client";
 import {ApiError} from "../../utils/api-error";
-import {bannerHasOrderHistory} from "./banner-eligibility";
 import {cachedBannerConfig,invalidateHomepageBanner,type BannerOffer} from "./banner-cache";
 export const BANNER_ID="homepage_banner";
 export const updateBannerSchema=z.object({enabled:z.boolean().optional(),featuredOfferCode:z.enum(["BIG_ORDER","FIRST_ORDER"]).optional()}).strict().refine(value=>Object.keys(value).length>0,"No banner changes supplied");
@@ -26,7 +25,7 @@ export const updateHomepageBanner=async(input:z.infer<typeof updateBannerSchema>
  },{timeout:15000});
  invalidateHomepageBanner();return getAdminBanner();
 };
-export const publicHomepageBanner=async(actor?:{id:string;role:UserRole}):Promise<BannerOffer|null>=>{
+export const publicHomepageBanner=async():Promise<BannerOffer|null>=>{
  const config=await cachedBannerConfig(async()=>{
   const setting=await prisma.homepageBanner.findUnique({where:{id:BANNER_ID},select:{enabled:true,featuredOfferCode:true,bannerImageUrl:true}});
   if(!setting?.enabled)return {enabled:false,offer:null};
@@ -35,9 +34,6 @@ export const publicHomepageBanner=async(actor?:{id:string;role:UserRole}):Promis
   return {enabled:true,offer:{bannerImageUrl:setting.bannerImageUrl??null,code:offer.code as BannerOffer["code"],title:offer.title,percentage:Number(offer.percentage),minOrderAmount:offer.minOrderAmount===null?null:Number(offer.minOrderAmount)}};
  });
  if(!config.enabled||!config.offer)return null;
- if(config.offer.code==="FIRST_ORDER"&&actor?.role===UserRole.CUSTOMER){
-  if(await bannerHasOrderHistory(actor.id))return null;
- }
  return config.offer;
 };
 export const requireBannerActor=(actor:{id:string;role:UserRole;name:string}|undefined)=>{
