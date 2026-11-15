@@ -1004,3 +1004,18 @@ Fix: banner-only tolerant authentication treats invalid credentials as guest; ex
 - No database schema, customer/order data, checkout discount rules, or unrelated UI was changed.
 
 Homepage banner visibility correction (15 November 2026): supersedes the earlier FIRST_ORDER banner eligibility rule. The enabled homepage banner and enabled featured offer now display to ALL visitors, including logged-in returning customers. Both banner endpoints return identical public, cacheable content without authentication or order-history lookups; the frontend always revalidates that public content and keeps it visible through login/logout. Checkout offer eligibility, discounts, orders, and admin enable/disable controls are unchanged. Deploy the backend and frontend changes together.
+
+
+## Contact page and admin media (15 November 2026)
+
+The public Contact page now has a curved video hero, tap-to-play inline player, contact cards and a responsive Custom Framing banner. Book appointment, Home and bottom navigation are unchanged.
+
+Admin > Settings > Storyboard video manages the Contact video, optional poster and banner; Contact details manages public phone/email/studio/address. No verified business details were supplied, so those fields remain blank until configured.
+
+Public bucket site-media has backend-only writes. Limits: MP4/WebM 50 MB; JPG/PNG/WebP poster/banner 2 MB. Backend magic-byte checks, staff authorization, rate/concurrency limits and generated filenames protect uploads. Replacements/removals clean old files; failed writes compensate uploads, with a startup/daily orphan retry that rechecks active references. Private customer-photos is unchanged.
+
+Three records in site_contact_settings hold storyboard_video, custom_framing_banner and contact_details, including updater/time. Idempotent setup was applied: npx tsx prisma/setup-contact-media.ts --apply. SUPABASE_SITE_MEDIA_BUCKET defaults to site-media; existing service credentials stay backend-only. Namespaced contact.* changes use the existing offer_audit log's required BIG_ORDER partition, without changing offers.
+
+Default video references Home's current file without copying/changing it; poster/banner reuse the existing gallery-wall asset. Public GET /api/v1/site/contact-media is identical for guests/logged-in visitors, caches 60s and invalidates on changes. Media failures use defaults.
+
+Verified: backend suite 630 passed, frontend validation 3 passed, builds/type checks/scoped lint passed; WebKit/Chromium layouts at 320/375/768/1440, extreme-image crops/fallbacks and mocked admin image upload/removal passed. The real Home video played inline in both engines with mute/pause/resume and scroll/hidden-tab pausing. A live temporary PNG upload/public GET returned 200 and was deleted. Live 50 MB network upload and physical-iPhone checks remain manual. Restart/redeploy both applications.

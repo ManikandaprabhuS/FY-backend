@@ -1,3 +1,4 @@
+import {startContactMediaCleanup} from "./modules/contact-media/contact-media.service";
 import {startCustomerNotificationCleanup} from "./modules/customer-notifications/customer-notifications.service";
 import {startPhotoMaintenance} from "./modules/order-photos/order-photos.service";
 import {startBannerImageCleanup} from "./modules/home-banner/banner-image.service";
@@ -14,7 +15,7 @@ void seedOffers().then(()=>seedHomepageBanner()).then(()=>{
  server.listen(env.PORT,()=>{
   logger.info({port:env.PORT,environment:env.NODE_ENV},"FrameYaad API started");
   console.log("Application is running on",env.PORT);
-  startReviewWorker();startBannerImageCleanup();startCustomerNotificationCleanup();startPhotoMaintenance();
+  startContactMediaCleanup();startReviewWorker();startBannerImageCleanup();startCustomerNotificationCleanup();startPhotoMaintenance();
  });
 }).catch((error:unknown)=>{
  logger.error({err:error},"Offer initialization failed; API was not started");

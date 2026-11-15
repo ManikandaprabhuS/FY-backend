@@ -1,3 +1,4 @@
+import {contactPublicRouter,contactAdminRouter} from "../modules/contact-media/contact-media.routes";
 import {photoCleanupRouter} from "../modules/photo-cleanup/photo-cleanup.routes";
 import { Router } from "express";
 import {homeBannerRouter} from "../modules/home-banner/home-banner.routes";
@@ -28,6 +29,8 @@ import { checkoutRouter } from "../modules/checkout/checkout.routes";
 import {orderPhotosRouter} from "../modules/order-photos/order-photos.routes";
 import {bannerImageRouter} from "../modules/home-banner/banner-image.routes";
 export const apiRouter = Router();
+apiRouter.use("/site",contactPublicRouter);
+apiRouter.use("/admin/contact-settings",contactAdminRouter);
 apiRouter.use("/admin",photoCleanupRouter);
 apiRouter.use("/admin/homepage-banner/image",bannerImageRouter);
 apiRouter.use("/order-photos", orderPhotosRouter);

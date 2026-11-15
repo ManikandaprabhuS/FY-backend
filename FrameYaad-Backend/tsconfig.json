@@ -35,6 +35,7 @@
     "prisma/check-photo-cleanup.ts",
     "prisma/setup-order-refunds.ts", "prisma/setup-variant-photo-limits.ts",
     "prisma/check-variant-photo-limits.ts",
+    "prisma/setup-contact-media.ts",
     "prisma/setup-banner-images.ts",
     "prisma/check-banner-images.ts",
     "prisma/check-order-photos.ts",

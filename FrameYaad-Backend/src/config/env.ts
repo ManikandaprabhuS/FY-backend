@@ -15,6 +15,7 @@ const environmentSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DIRECT_URL: z.string().min(1),
   SUPABASE_URL: z.url(),
+  SUPABASE_SITE_MEDIA_BUCKET: z.literal("site-media").default("site-media"),
   SUPABASE_BANNER_BUCKET: z.literal("site-banners").default("site-banners"),
   SUPABASE_PHOTO_BUCKET: z.literal("customer-photos").default("customer-photos"),
   SUPABASE_ANON_KEY: z.string().min(1),

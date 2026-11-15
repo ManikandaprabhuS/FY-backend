@@ -577,3 +577,12 @@ model PhotoCleanupAudit {
  @@map("photo_cleanup_audit")
 }
 
+
+model SiteContactSetting {
+  key String @id @db.VarChar(40)
+  data Json @default("{}")
+  updatedBy String?
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp(3)
+  @@map("site_contact_settings")
+}
+
