@@ -2,7 +2,7 @@ import {Prisma} from "@prisma/client";
 import {beforeEach,expect,it,vi} from "vitest";
 const m=vi.hoisted(()=>({setting:vi.fn(),offer:vi.fn(),get:vi.fn(),user:vi.fn(),seed:vi.fn(),transaction:vi.fn(),update:vi.fn(),audit:vi.fn(),identity:vi.fn(),history:vi.fn()}));
 vi.mock("../src/prisma/client",()=>({prisma:{homepageBanner:{findUnique:m.setting,findUniqueOrThrow:m.get,createMany:m.seed},offer:{findUnique:m.offer},user:{findUnique:m.user},$transaction:m.transaction}}));
-vi.mock("../src/modules/checkout/checkout.service",()=>({offerIdentity:m.identity,hasOrderHistory:m.history}));
+vi.mock("../src/modules/home-banner/banner-eligibility",()=>({bannerHasOrderHistory:m.history}));
 import {publicHomepageBanner,updateHomepageBanner,seedHomepageBanner,updateBannerSchema} from "../src/modules/home-banner/home-banner.service";
 import {invalidateHomepageBanner} from "../src/modules/home-banner/banner-cache";
 beforeEach(()=>{
@@ -28,7 +28,7 @@ it("First Order is visible to guests/new customers but eligibility is checked fr
  expect((await publicHomepageBanner({id:"new",role:"CUSTOMER"}))?.code).toBe("FIRST_ORDER");
  m.history.mockResolvedValueOnce(true);expect(await publicHomepageBanner({id:"returning",role:"CUSTOMER"})).toBeNull();
  expect((await publicHomepageBanner({id:"another-new",role:"CUSTOMER"}))?.code).toBe("FIRST_ORDER");
- expect(m.identity).toHaveBeenCalledWith(expect.anything(),"returning");
+ expect(m.history).toHaveBeenCalledWith("returning");
 });
 it("invalidating after offer changes reads updated percentages/minimums immediately",async()=>{
  await publicHomepageBanner();m.offer.mockResolvedValue({code:"BIG_ORDER",title:"Big Order Offer",enabled:true,percentage:new Prisma.Decimal(12),minOrderAmount:new Prisma.Decimal(3000)});

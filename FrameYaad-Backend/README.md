@@ -988,3 +988,17 @@ Verification:
 - Disposable component fixture checked at 320px, 768px and 1440px: readable cards/table/widget, full-width mobile search, no document overflow and no console errors.
 - Destructive storage calls were tested with mocks only. Real-file deletion and authenticated end-to-end deletion should be verified by you with a disposable photo after downloading anything needed.
 - The temporary verification server was stopped; the backend remains stopped to avoid duplicate port-5000 processes.
+
+## Homepage banner login and loading fix (15 November 2026)
+
+Cause: the public banner used strict optional authentication, so an expired token could reject the request; the frontend also cleared the banner on request errors and replaced it with a skeleton whenever auth changed.
+Fix: banner-only tolerant authentication treats invalid credentials as guest; existing protected APIs stay strict. The frontend retains the last successful banner through auth checking, login/logout, and failed refreshes.
+
+- Added GET /api/v1/home/banner/public for public settings only, with Cache-Control: public, max-age=30, stale-while-revalidate=60. Personalized GET /api/v1/home/banner remains private, no-store. The existing 30-second in-memory cache never stores eligibility and still invalidates on admin offer/banner/image changes.
+- FIRST_ORDER eligibility is one parameterized normalized email/phone history query. Accounts alone do not count; positive-value real orders do. Real cancelled orders continue counting as history, preserving the existing checkout anti-abuse policy. Failed/abandoned statuses and zero-value records do not count for this informational banner. Checkout rules and historical orders are unchanged.
+- BIG_ORDER bypasses token validation and order-history queries entirely. Invalid/expired tokens and auth-provider errors on this informational endpoint are treated as guests.
+- App bootstrap starts loading before React renders the hero. Public content is cached in sessionStorage (24-hour maximum stale fallback), revalidated in the background, and never replaced with an error result. Identity changes trigger fresh eligibility; stale responses are ignored. One silent retry handles request failures. Auth-checking changes do not hide or refetch the banner.
+- Public banner images now preload with high priority and render eagerly with fixed dimensions; admin preview remains lazy. Existing object-fit/crop/fallback behavior is unchanged. Existing JPEG/PNG uploads are NOT automatically converted to WebP by this patch; no image-processing dependency or stored image rewrite was introduced.
+- Validation: frontend production build and changed-file lint passed; backend TypeScript and changed-file lint passed. 16 backend banner tests, 4 relevant existing frontend banner tests, and 5 new cache/state regression tests passed.
+- Read-only real-database measurements: cold public configuration 731.68 ms; 30 warm cached calls mean 0.0038 ms, max 0.0244 ms; normalized history query 107.70 ms. These are service/query timings, not full HTTP or browser timings, and exclude Supabase token verification. No valid customer access token was supplied, so live authenticated HTTP/Slow 3G/mobile layout and token-verification latency remain to be tested. The under-100-ms authenticated endpoint target is not claimed.
+- No database schema, customer/order data, checkout discount rules, or unrelated UI was changed.

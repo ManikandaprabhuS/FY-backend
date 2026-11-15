@@ -2,7 +2,7 @@ import {type Prisma,UserRole} from "@prisma/client";
 import {z} from "zod";
 import {prisma} from "../../prisma/client";
 import {ApiError} from "../../utils/api-error";
-import {offerIdentity,hasOrderHistory} from "../checkout/checkout.service";
+import {bannerHasOrderHistory} from "./banner-eligibility";
 import {cachedBannerConfig,invalidateHomepageBanner,type BannerOffer} from "./banner-cache";
 export const BANNER_ID="homepage_banner";
 export const updateBannerSchema=z.object({enabled:z.boolean().optional(),featuredOfferCode:z.enum(["BIG_ORDER","FIRST_ORDER"]).optional()}).strict().refine(value=>Object.keys(value).length>0,"No banner changes supplied");
@@ -36,8 +36,7 @@ export const publicHomepageBanner=async(actor?:{id:string;role:UserRole}):Promis
  });
  if(!config.enabled||!config.offer)return null;
  if(config.offer.code==="FIRST_ORDER"&&actor?.role===UserRole.CUSTOMER){
-  const identity=await offerIdentity(prisma,actor.id);
-  if(await hasOrderHistory(prisma,identity.email,identity.phone))return null;
+  if(await bannerHasOrderHistory(actor.id))return null;
  }
  return config.offer;
 };
