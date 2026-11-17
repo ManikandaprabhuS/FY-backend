@@ -1019,3 +1019,138 @@ Three records in site_contact_settings hold storyboard_video, custom_framing_ban
 Default video references Home's current file without copying/changing it; poster/banner reuse the existing gallery-wall asset. Public GET /api/v1/site/contact-media is identical for guests/logged-in visitors, caches 60s and invalidates on changes. Media failures use defaults.
 
 Verified: backend suite 630 passed, frontend validation 3 passed, builds/type checks/scoped lint passed; WebKit/Chromium layouts at 320/375/768/1440, extreme-image crops/fallbacks and mocked admin image upload/removal passed. The real Home video played inline in both engines with mute/pause/resume and scroll/hidden-tab pausing. A live temporary PNG upload/public GET returned 200 and was deleted. Live 50 MB network upload and physical-iPhone checks remain manual. Restart/redeploy both applications.
+
+## Performance audit - Section 1 - 16 November 2026
+
+Scope: architecture inspection and unchanged baseline only. No optimization has been applied yet. Work stops after this section for review. Forgot-password/recovery validation is excluded.
+
+### Architecture and safety findings
+
+- Frontend: React 19, Vite 8, TypeScript, Tailwind 4, Zustand, React Router and Axios. Route pages are lazy-loaded; PDF generation and revenue charts are already separate dynamic chunks.
+- Backend: Express 5, Prisma 6, PostgreSQL, Supabase Auth/Storage, Zod, Multer and Pino. Existing request/error/auth boundaries are retained.
+- Existing token/session migration, cart browser storage, banner/order caches and local photo IndexedDB recovery must remain unchanged.
+- Checkout and authenticated offers routes explicitly use no-store. No customer-specific shared cache was added. Public catalog/banner caching and mutation invalidation require targeted verification before any cache optimization.
+- Deployment uses Netlify SPA redirects and CSP headers. Potential compatibility risk, not yet live-confirmed: the CSP has no explicit media-src, so default-src self may block externally hosted video. Security policy was left unchanged.
+- Backend startup runs existing seeds and maintenance jobs; it was not started during this read-only audit to avoid unintended data/file changes.
+
+### Production JavaScript baseline
+
+Fresh frontend production build passed. Sizes below use bytes and Node zlib gzip; dynamic chunks are not all downloaded on initial navigation.
+
+| Measurement | Before (raw bytes) | Before (gzip bytes) | After |
+| --- | ---: | ---: | --- |
+| Entry JavaScript | 315182 | 98993 | Unchanged; no optimization yet |
+| Initial static import graph | 388971 | 128106 | Unchanged; no optimization yet |
+| All 139 JavaScript chunks combined | 2199502 | 689339 | Unchanged; no optimization yet |
+| Lazy PDF report chunk | 436582 | 139927 | Unchanged |
+| Lazy revenue chart chunk | 329092 | 96904 | Unchanged |
+
+Lighthouse mobile/desktop scores, image loading and runtime endpoint timings: NOT MEASURED. No local frontend/backend listener was available at audit time; measuring a failed API page would not be a valid baseline. No before/after improvement is claimed.
+
+### Existing regression baseline
+
+- Backend: 53 files, 595 tests passed (recovery/forgot-password files excluded). These are isolated automated tests, not live registration, checkout or email delivery validation.
+- Frontend: 263 tests; 248 passed, 15 failed, 0 skipped. Failures existed before optimization, spanning banner/checkout source expectations, header/checkout visual fixtures, collection integration, order metadata and review integration expectations. They need individual triage; they are not assumed harmless.
+- Live Supabase Auth/database/storage connectivity and actual notification sender/receiver delivery are not certified by this section.
+- Full requested feature regressions (including COD, photo recovery, appointments, notifications and responsive browser checks) remain pending after a safe runtime baseline is available.
+
+### Changes, limits and next gate
+
+Files changed in this section: frontend README.md and backend README.md only. Application source, API contracts, UI, business rules, Prisma schema/migrations, records, browser storage keys, Storage policies and image paths remain unchanged. Dependencies added/removed: none. API/image-loading changes: none.
+
+Skipped for safety: speculative cache changes, broad dependency removal, schema/index changes, and starting backend maintenance jobs against existing data. Existing frontend test failures and dashboard-managed deployment configuration remain outstanding.
+
+Next: start the normal local frontend/backend, establish reproducible Lighthouse/API baselines, triage the existing failing tests, then propose one small evidence-backed optimization. Wait for user review/approval before proceeding.
+
+## Performance audit - Section 2 - 16 November 2026
+
+Read-only runtime baseline completed against the running local backend and the existing production build served on 127.0.0.1:5174. User dev servers were not restarted or changed. Lighthouse 13.6.0 ran in fresh headless Chrome profiles, performance category only; mobile uses default simulated throttling and desktop the desktop preset. These are single-run local laboratory results, not deployed-site scores or a statistically stable benchmark.
+
+| Page / profile | Performance | FCP | LCP | Total blocking time | CLS | Speed index |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Home / mobile | 72 | 2.0 s | 6.2 s | 190 ms | 0 | 3.8 s |
+| Home / desktop | 94 | 0.6 s | 1.5 s | 0 ms | 0 | 1.1 s |
+| Shop All / mobile | 78 | 1.9 s | 5.1 s | 160 ms | 0 | 2.4 s |
+
+Reports: D:/FrameYaad/performance-section2-mobile.json, performance-section2-desktop.json and performance-section2-products-mobile.json. No application dependency was added: Lighthouse ran from an existing external npm tool cache. The preview server was audit-only.
+
+### Public API measurements
+
+Client-observed localhost HTTP times include network/database/pool overhead, not isolated SQL execution time. First observed catalog response: 1057 ms, 200, 10514 response bytes. Six follow-up catalog requests: 422, 300, 260, 259, 293, 275 ms. A further 30 sequential requests using the storefront query parameters had 0 failures: minimum 242 ms, median 262 ms, p95 291 ms, maximum 521 ms. This does not prove intermittent failures impossible.
+
+Banner: first observed 226 ms, then 6/7/6/5/6 ms. Contact media: first observed 162 ms, then 4/4/6/7/5 ms. All returned 200. Existing public caches are effective; no new cache was introduced.
+
+### Findings and next safe optimization
+
+Lighthouse identifies image delivery as a major opportunity. The unchanged footer illustration is 708250 bytes; Lighthouse estimates 662170 bytes of mobile image savings (an estimate, not achieved savings). Hero decorative images are larger than displayed; the mobile LCP image is discovered through JavaScript without a high-priority hint. CSS/render-blocking and unused JavaScript are additional investigation candidates. No assets, presentation, timing or animation behavior were changed.
+
+Catalog code performs a parameterized filtering/facet query followed by product hydration. It already avoids a query-per-product loop. Changing query shape, caching or response selection without further measurement could risk filters, stock freshness or API equivalence, so it remains unchanged.
+
+Next proposed section: optimize only an existing static image delivery path while preserving identical artwork, dimensions and transparency, then rebuild and repeat measurements and responsive checks. Defer broader query/cache/dependency changes until individually proven safe.
+
+Changes this section: both README files only; generated audit JSON reports in the workspace. JavaScript bundle sizes remain the Section 1 baseline (initial graph 388971 raw / 128106 gzip bytes). No before/after optimization improvement is claimed yet. No accounts, orders, uploads or customer data were created/modified by the audit. Authenticated workflows, live notification delivery and full regression checks remain pending; forgot-password testing remains excluded. Stop here for user review before optimization.
+
+## Performance optimization - Section 3 - 16 November 2026
+
+Completed one narrowly scoped static-asset optimization: Footer.tsx now imports a lossless WebP copy of the existing footer illustration. The original PNG is retained unchanged. No markup, styles, dimensions, crop, lazy-loading behavior, links, newsletter logic, animation or other functionality changed.
+
+| Footer asset | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| Encoded size | 708250 bytes | 376536 bytes | 331714 bytes (46.8%) |
+| Dimensions | 1942 x 484 | 1942 x 484 | Unchanged |
+
+Decoded RGBA verification found zero visible color differences and zero alpha differences. Chromium and WebKit comparisons at 320/375/414/768/1440 pixels used the live footer's computed size/object-fit/object-position in a stable isolated capture (to avoid asynchronous page-scroll movement). All 10 comparisons were pixel-identical. The normal localhost:5173 page had no horizontal overflow or captured page errors. An initial live scrolling screenshot comparison was unstable; the isolated comparison distinguishes image differences from capture timing.
+
+### Build, tests and measurements
+
+- Production build and scoped Footer.tsx ESLint passed.
+- New focused footer-delivery regression test passed.
+- Full frontend suite: 264 tests, 249 passed, 15 failed, 0 skipped. The failing test names match Section 1; no new failures were introduced.
+- Backend code/API/schema were not changed; no backend mutation or live account/order test was performed.
+- Entry JavaScript: 315182 raw / 98998 gzip bytes (before: 315182 / 98993).
+- All 139 JavaScript chunks: 2199503 raw / 689370 gzip bytes (before: 2199502 / 689339). Tiny filename/hash/compression variation is not a JavaScript optimization; the measurable saving is the image payload.
+
+| Home Lighthouse profile | Before score | After score | Before LCP | After LCP | Before/after CLS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mobile | 72 | 73 | 6.2 s | 6.1 s | 0 / 0 |
+| Desktop | 94 | 95 | 1.5 s | 1.5 s | 0 / 0 |
+
+Same Lighthouse 13.6.0 production-preview settings as Section 2, one run per profile. Small score changes may be run-to-run noise and are NOT claimed as a proven improvement caused by a below-fold footer image. The report confirms the footer resource is now 376536 bytes. Reports: D:/FrameYaad/performance-section3-mobile.json and performance-section3-desktop.json.
+
+Important baseline qualification: WebKit found API CORS/access-control errors on the temporary 127.0.0.1:5174 preview origin. Therefore both Section 2 and Section 3 preview scores are provisional local laboratory comparisons, not certified full-backend/deployed-site measurements. The footer verification was rerun successfully on the normal localhost:5173 origin. CORS/security configuration was intentionally not changed. A matching-origin deployment audit remains outstanding.
+
+Files: src/features/customer/components/Footer.tsx (one import), new src/assets/footer-craftsmanship.webp, new tests/performance-footer-image.test.mjs, and the two project README files. Workspace-only diagnostic script: D:/FrameYaad/performance-footer-check.cjs. No application dependencies added/removed; conversion/verification used bundled external Sharp/Playwright tools. No API, database, customer storage or upload paths changed.
+
+Skipped: lossy compression, resizing/cropping, changing hero artwork, or rewriting image components, to preserve visual equivalence. Review the footer on Home/Shop/Contact at mobile and desktop widths before approving another section. Work stops here for user testing.
+
+## Performance optimization - Section 4 - 16 November 2026
+
+Scope: earlier discovery of the existing Home hero palm image only. main.tsx now calls React DOM's existing preload API for that image before mounting React, guarded by pathname === '/'. The existing hero image has fetchPriority="high". Its bytes, crop, styles, dimensions, alt/accessibility behavior, carousel, video, timing and reveal toggle are unchanged. Other entry routes do not preload/download the palm image. No global HTML preload was added.
+
+### Verification and measured trade-off
+
+Chromium and WebKit checks on the normal localhost:5173 origin passed at 375 and 1440 pixels: preload present on Home, high priority on the existing image, no horizontal overflow or captured page errors. Shop All direct entry has no palm preload or actual palm image download (Vite's development asset import module is not an image download).
+
+| Browser / width | Before image request start | After image request start | After hero module response end |
+| --- | ---: | ---: | ---: |
+| Chromium / 375 | 712.7 ms | 307.1 ms | 472.5 ms |
+| Chromium / 1440 | 504.4 ms | 284.1 ms | 437.8 ms |
+| WebKit / 375 | 1119 ms | 292 ms | 819 ms |
+| WebKit / 1440 | 1003 ms | 284 ms | 853 ms |
+
+These development-server samples are not controlled statistical production benchmarks. The directly verified improvement is request ordering: the image now starts from a preload link before the hero module finishes, instead of starting from the rendered image afterward. Reports: D:/FrameYaad/performance-section4-before.json and performance-section4-after.json. Workspace browser check: D:/FrameYaad/performance-hero-check.cjs.
+
+Build and scoped lint passed. Focused performance tests: 3 passed. Full frontend suite: 266 tests, 251 passed, the same 15 existing failing test names, 0 skipped. No new regression-suite failures. Backend was not changed; full authenticated transaction tests and a physical-iPhone check are not claimed in this section.
+
+### Lighthouse comparison (provisional local preview)
+
+| Home profile | Previous section score | This section score | Previous LCP | This LCP | CLS before / after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mobile | 73 | 70 | 6.1 s | 6.4 s | 0 / 0 |
+| Desktop | 95 | 95 | 1.5 s | 1.4 s | 0 / 0 |
+
+Mobile LCP request-discovery audit passes after the hint; overall score did not improve in this single run. Do not interpret the development timing samples or discovery audit as proof of an overall production speedup. Both preview-origin CORS limitations from Section 3 and run-to-run variation remain; investigate a reproducible matched-origin production audit before claiming an aggregate performance gain. Reports: D:/FrameYaad/performance-section4-mobile.json and performance-section4-desktop.json.
+
+Bundle trade-off: entry 315292 raw / 99055 gzip bytes versus 315182 / 98998 previously (+110 raw / +57 gzip). All 139 JS chunks: 2199637 raw / 689465 gzip versus 2199503 / 689370. No image bytes changed and no application dependency was added/removed.
+
+Files changed: src/main.tsx, src/features/customer/components/HeroSection.tsx, new tests/performance-hero-loading.test.mjs, and both README files. No API, schema, data, browser storage, business rules, fonts, security policy or image paths changed. Skipped: preloading all hero assets, global preloads on unrelated pages, and modifying animations or hero visuals. Please test Home loading/reveal/carousel and Shop All on mobile/desktop; pause here for approval.
