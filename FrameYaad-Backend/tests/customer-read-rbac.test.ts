@@ -26,3 +26,10 @@ it("never accepts another customer ID from query or body",async()=>{
 it("validates notification IDs before querying",async()=>{
  expect((await request(app).patch("/api/v1/customer-notifications/bad/read").set("Authorization","Bearer test")).status).toBe(404);expect(m.read).not.toHaveBeenCalled();
 });
+it.each(['/customer-notifications','/customer-notifications/99999999-9999-4999-8999-999999999999','/notifications/99999999-9999-4999-8999-999999999999'])("rejects customer delete at %s without a data call",async path=>{
+ expect((await request(app).delete('/api/v1'+path).set('Authorization','Bearer test')).status).toBe(403);
+ expect(m.read).not.toHaveBeenCalled();
+});
+it('rejects customer clear calls on both source routes',async()=>{
+ for(const path of ['/notifications/clear','/customer-notifications/clear','/notifications/clear-all','/customer-notifications/delete-all'])expect((await request(app).post('/api/v1'+path).set('Authorization','Bearer test')).status).toBe(403);
+});

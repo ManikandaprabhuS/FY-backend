@@ -1,6 +1,6 @@
 import {Prisma,UserRole} from "@prisma/client";
 import {beforeEach,expect,it,vi} from "vitest";
-const mocks=vi.hoisted(()=>({find:vi.fn(),update:vi.fn(),get:vi.fn(),transaction:vi.fn()}));
+const mocks=vi.hoisted(()=>({find:vi.fn(),update:vi.fn(),get:vi.fn(),transaction:vi.fn(),items:vi.fn(),stock:vi.fn()}));
 vi.mock("../src/prisma/client",()=>({prisma:{$transaction:mocks.transaction}}));
 import {updateOrderStatus} from "../src/modules/orders/orders.service";
 import {ORDER_STATUS_FLOW,parseStatusHistory} from "../src/modules/orders/order-status-flow";
@@ -12,7 +12,8 @@ beforeEach(()=>{
   if(where.status!==current.status)return Promise.resolve({count:0});current={...current,...data};return Promise.resolve({count:1});
  });
  mocks.get.mockImplementation(()=>Promise.resolve({...current,totalPrice:new Prisma.Decimal(1000),createdAt:new Date("2026-01-01")}));
- mocks.transaction.mockImplementation((fn:(tx:unknown)=>unknown)=>fn({order:{findFirst:mocks.find,updateMany:mocks.update,findUniqueOrThrow:mocks.get}}));
+ mocks.items.mockResolvedValue([]);mocks.stock.mockResolvedValue({count:1});
+ mocks.transaction.mockImplementation((fn:(tx:unknown)=>unknown)=>fn({order:{findFirst:mocks.find,updateMany:mocks.update,findUniqueOrThrow:mocks.get},orderItem:{findMany:mocks.items},variant:{updateMany:mocks.stock}}));
 });
 const actor={id:"staff",role:UserRole.ADMIN};
 it("defines exactly the five forward steps in one server config",()=>expect(ORDER_STATUS_FLOW.steps.map(s=>s.status)).toEqual(["PLACED","PROCESSING","READY_TO_SHIP","SHIPPED","DELIVERED"]));
@@ -51,3 +52,15 @@ it("preserves legacy CONFIRMED without offering it as a new step",async()=>{
  current.status="CONFIRMED";await updateOrderStatus("order",{status:"PROCESSING"},actor);expect(current.status).toBe("PROCESSING");
 });
 it("ignores malformed history safely",()=>expect(parseStatusHistory([null,"bad",{}, {status:"PLACED",changedAt:"2026-01-01",changedBy:null}])).toEqual([]));
+it('restores selected-variant stock only once on duplicate customer cancellation',async()=>{
+ mocks.items.mockResolvedValue([{snapshotVariantId:'selected',quantity:3}]);
+ await updateOrderStatus('order',{status:'CANCELLED'},{id:'owner',role:UserRole.CUSTOMER});
+ await updateOrderStatus('order',{status:'CANCELLED'},{id:'owner',role:UserRole.CUSTOMER});
+ expect(mocks.stock).toHaveBeenCalledTimes(1);
+ expect(mocks.stock).toHaveBeenCalledWith({where:{id:'selected'},data:{stockQuantity:{increment:3}}});
+});
+it('only one concurrent staff cancellation restores stock',async()=>{
+ mocks.items.mockResolvedValue([{snapshotVariantId:'selected',quantity:1}]);
+ await Promise.allSettled([updateOrderStatus('order',{status:'CANCELLED'},actor),updateOrderStatus('order',{status:'CANCELLED'},{id:'employee',role:UserRole.EMPLOYEE})]);
+ expect(mocks.stock).toHaveBeenCalledTimes(1);
+});

@@ -1,4 +1,5 @@
 import {revenueSummary} from "./revenue";
+import {changeOrderStock} from './order-stock';
 import {randomUUID, createHash} from "node:crypto";
 import {enqueuePhotoAttachment, reserveOrderPhoto} from "../order-photos/order-photos.service";
 import {createAddressSchema} from "../addresses/addresses.schemas";
@@ -142,6 +143,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
     const photoVariants=input.photoId?await transaction.variant.findMany({where:{id:{in:[...new Set(orderItems.flatMap(item=>item.snapshotVariantId?[item.snapshotVariantId]:[]))]}},select:{maxPhotoSizeMB:true}}):[];
     const photo = await reserveOrderPhoto(transaction, userId, input.photoId, photoVariants);
     const placedAt=new Date();
+    await changeOrderStock(transaction, orderItems);
     const order = await transaction.order.create({
       data: {
         userId,
@@ -280,6 +282,10 @@ export const updateOrderStatus = async (id:string,input:UpdateOrderStatusInput,a
     const changed=await tx.order.updateMany({where:{id,status:existing.status,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},
       data:{...(input.status==="CANCELLED"?{cancelledBy:actor.role===UserRole.CUSTOMER?"customer":"admin",cancelledAt:new Date(entry.changedAt),cancellationReason:note??null}:{}),status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
     if(!changed.count)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
+    if (input.status === 'CANCELLED') {
+      const items = await tx.orderItem.findMany({ where: { orderId: id }, select: { snapshotVariantId: true, quantity: true } });
+      await changeOrderStock(tx, items, true);
+    }
     return tx.order.findUniqueOrThrow({where:{id},select:orderViewSelect});
   },{timeout:15000});
 };

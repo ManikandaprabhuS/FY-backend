@@ -161,7 +161,7 @@ describe("wishlist ownership and notification privacy", () => {
     );
   });
 
-  it("uses recipient ownership for notification updates and deletion", async () => {
+  it("uses recipient ownership for notification reads and rejects customer deletion", async () => {
     const readResponse = await request(app)
       .patch(`/api/v1/notifications/${notificationId}/read`)
       .set("Authorization", "Bearer customer");
@@ -171,12 +171,8 @@ describe("wishlist ownership and notification privacy", () => {
     const deleteResponse = await request(app)
       .delete(`/api/v1/notifications/${notificationId}`)
       .set("Authorization", "Bearer customer");
-    expect(deleteResponse.status).toBe(204);
-    expect(mocks.deleteNotification).toHaveBeenCalledWith(
-      notificationId,
-      customerId,
-      UserRole.CUSTOMER,
-    );
+    expect(deleteResponse.status).toBe(403);
+    expect(mocks.deleteNotification).not.toHaveBeenCalled();
   });
 
   it("returns unread count and marks all owned notifications as read", async () => {
