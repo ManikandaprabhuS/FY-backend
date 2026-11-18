@@ -25,7 +25,7 @@ beforeEach(()=>{
   if(where.status!==order.status||("refundStatus" in where&&where.refundStatus!==order.refundStatus))return Promise.resolve({count:0});
   Object.assign(order,data);return Promise.resolve({count:1});
  });
- m.transaction.mockImplementation((fn:(tx:unknown)=>unknown)=>fn({order:{findUnique:m.find,findFirst:m.first,findUniqueOrThrow:m.find,updateMany:m.update}}));
+ m.transaction.mockImplementation((fn:(tx:unknown)=>unknown)=>fn({order:{findUnique:m.find,findFirst:m.first,findUniqueOrThrow:m.find,updateMany:m.update},orderItem:{findMany:vi.fn().mockResolvedValue([])}}));
  m.staff.mockResolvedValue({});m.customer.mockResolvedValue({});
  m.profile.mockResolvedValue({...admin,name:"Admin Name",isActive:true,isEmailVerified:true,isPhoneNumberVerified:false});
  m.auth.mockResolvedValue({data:{user:{id:admin.id,email_confirmed_at:"2026-01-01"}},error:null});

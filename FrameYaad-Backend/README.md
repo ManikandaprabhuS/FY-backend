@@ -1,5 +1,62 @@
 # FrameYaad Backend
 
+## Customer notification history
+
+2026-11-18: Customer notifications now use one source for the navbar popup and Profile page, show full history, and are read-only (no delete).
+
+Diagnosis: Profile used the legacy notifications source while the popup used CustomerNotification with separate state/count requests. The newer source also restricted history to 90 days and omitted the legacy welcome message.
+Fix: one authenticated customer endpoint merges both owned sources read-only, deduplicates matching events, preserves original timestamps/read state, and returns newest-first pages of 20 with shared counts. No migration, copying, schema changes or new dependencies; both views share optimistic state with rollback. Customer delete/clear requests return 403; admin notifications remain unchanged.
+
+Retention: automatic customer-history pruning is disabled (indefinite retention); the dev database has no pg_cron extension. Previously physically deleted history requires a backup to recover. Existing account-deletion behavior is unchanged.
+
+Verification: backend suite 641/641 passed; 20 focused frontend notification tests passed. Dev API/browser checks at 1440px and 375px passed for welcome plus placed/status/cancel/refund history, matching lists/counts, reads in both directions, mark-all, failure rollback, empty state, ownership isolation, delete 403 and 62-record pagination including history older than 90 days. Tests used isolated dev users and a test-only token verifier, not real Supabase sign-in/accounts. Dummy orders, notifications and fixture records were removed; original stock, revenue, counts and notification read states matched the baseline. No photos were uploaded. The broad frontend run had 249/272 passing with 23 existing unrelated failures; these were left unchanged.
+
+
+## 2026-11-18: Stock and revenue verification
+
+Confirmed by the owner as a DEV database before any writes. Isolated users/products/variants were named **Dummy Test Order**; order remarks used that label. No existing prices, offers, orders, schema, migrations, photo files or Supabase Auth accounts were changed.
+
+**Bugs fixed:** checkout validated inventory but never deducted it; cancellation never restored it (no database triggers existed). A shared `order-stock.ts` now aggregates quantities by snapshot variant and performs guarded atomic decrements inside the existing serializable checkout transaction. Cancellation restores quantities only after its status compare-and-set succeeds, in that same transaction. Duplicate cancellation returns without another restore. No historical inventory backfill was attempted. A second issue was stale frontend inventory: the shared product store now refreshes on existing order events/cross-tab revisions and every 15 seconds on visible Overview/Products/product-detail pages; it retains filters/page, skips Add/Edit forms, and preserves product-preview inputs.
+
+Starting all-time non-cancelled revenue: **INR 15,690.20**, **7 active orders**, AOV **INR 2,241.46**; **10 total orders** including cancellations. A/B below are isolated test variants initially stocked at 20 each. Revenue/count/AOV use an all-time test window; chart is the order-date point (18 November, Asia/Calcutta), initially zero. The delivered dummy order remains active until cleanup, explaining the INR 1,000 baseline in later rows.
+
+| Scenario | Stock A/B before -> after | Revenue INR before -> after | Active count; AOV INR before -> after | Order-date chart INR before -> after | Result |
+|---|---|---|---|---|---|
+| Before fix: qty 1 | 20/20 -> 20/20 (expected 19/20) | 15,690.20 -> 16,690.20 | 7; 2,241.46 -> 8; 2,086.28 | 0 -> 1,000 | FAIL; fixed and retested |
+| Place qty 1 | 20/20 -> 19/20 | 15,690.20 -> 16,690.20 | 7; 2,241.46 -> 8; 2,086.28 | 0 -> 1,000 | PASS |
+| Customer cancel from PLACED | 19/20 -> 20/20 | 16,690.20 -> 15,690.20 | 8; 2,086.28 -> 7; 2,241.46 | 1,000 -> 0 | PASS |
+| Place qty 3 | 20/20 -> 17/20 | 15,690.20 -> 18,690.20 | 7; 2,241.46 -> 8; 2,336.28 | 0 -> 3,000 | PASS |
+| Customer cancel from PROCESSING | 17/20 -> 20/20 | 18,690.20 -> 15,690.20 | 8; 2,336.28 -> 7; 2,241.46 | 3,000 -> 0 | PASS |
+| Multi-item: A qty 2, B qty 3 | 20/20 -> 18/17 | 15,690.20 -> 20,690.20 | 7; 2,241.46 -> 8; 2,586.28 | 0 -> 5,000 | PASS |
+| Admin cancel multi-item | 18/17 -> 20/20 | 20,690.20 -> 15,690.20 | 8; 2,586.28 -> 7; 2,241.46 | 5,000 -> 0 | PASS |
+| Multi-item refund INITIATED | 20/20 -> 20/20 | 15,690.20 -> 15,690.20 | 7; 2,241.46 unchanged | 0 -> 0 | PASS |
+| Multi-item refund COMPLETED | 20/20 -> 20/20 | 15,690.20 -> 15,690.20 | 7; 2,241.46 unchanged | 0 -> 0 | PASS |
+| Place order for late-status checks | 20/20 -> 20/19 | 15,690.20 -> 16,690.20 | 7; 2,241.46 -> 8; 2,086.28 | 0 -> 1,000 | PASS |
+| Reject READY_TO_SHIP cancellation (customer/admin) | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| Reject SHIPPED cancellation (customer/admin) | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| Reject DELIVERED cancellation (customer/admin) | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| Exceeds-stock order rejected | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| Last-unit concurrent orders (two customers) | 1/19 -> 0/19 | 16,690.20 -> 17,690.20 | 8; 2,086.28 -> 9; 1,965.58 | 1,000 -> 2,000 | PASS: one success, one stock error |
+| Cancel race winner | 0/19 -> 1/19 | 17,690.20 -> 16,690.20 | 9; 1,965.58 -> 8; 2,086.28 | 2,000 -> 1,000 | PASS |
+| Big Order: 6,000 subtotal, 600 discount, 5,400 final | 20/19 -> 14/19 | 16,690.20 -> 22,090.20 | 8; 2,086.28 -> 9; 2,454.47 | 1,000 -> 6,400 | PASS |
+| Cancel Big Order | 14/19 -> 20/19 | 22,090.20 -> 16,690.20 | 9; 2,454.47 -> 8; 2,086.28 | 6,400 -> 1,000 | PASS: final 5,400 removed |
+| Big Order refund INITIATED / COMPLETED (each checked) | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| First Order: 1,000 subtotal, 50 discount, 950 final | 20/19 -> 19/19 | 16,690.20 -> 17,640.20 | 8; 2,086.28 -> 9; 1,960.02 | 1,000 -> 1,950 | PASS |
+| Cancel First Order | 19/19 -> 20/19 | 17,640.20 -> 16,690.20 | 9; 1,960.02 -> 8; 2,086.28 | 1,950 -> 1,000 | PASS: final 950 removed |
+| First Order refund INITIATED / COMPLETED (each checked) | 20/19 unchanged | 16,690.20 unchanged | 8; 2,086.28 unchanged | 1,000 unchanged | PASS |
+| Duplicate cancellation (every cancelled fixture) | unchanged after first restore | unchanged after first deduction | unchanged | unchanged | PASS |
+| Forced transaction failure after stock update | original variant 5 -> 5 | unchanged | unchanged | unchanged | PASS: rollback also preserved updatedAt |
+| Cleanup | every original variant exactly unchanged | back to 15,690.20 | back to 7; 2,241.46 | back to 0 | PASS |
+
+**Revenue/report checks:** the existing `revenueWhere`/`revenueSummary` implementation already excludes CANCELLED orders and uses final `totalPrice`; no revenue calculation change was needed. Real service queries compared revenue/report and orders-export summaries at every snapshot; cancelled exports retained their amount and `excludedFromRevenue=true`. The current-month read-only report after cleanup is **INR 8,095.20 / 3 orders / INR 2,698.40 AOV**, identical to the chart and PDF; all-time overview remains INR 15,690.20 / 7 orders (different ranges intentionally). Chart/PDF numeric generation was checked against 44 before/after snapshots, and a live current-month PDF was rendered and visually inspected. Existing revenue no-store responses, immediate same-tab order events, cross-tab revisions, and visible 15-second polling remain unchanged.
+
+**Notifications/refunds:** actual dev notification records were checked for the dummy order number, customer name, final amount, staff/customer cancellation and once-only customer refund events. Explicit observer calls were coalesced in the verifier to avoid racing the existing async queue; notification production code was not changed. Refund transitions/messages and ADMIN/EMPLOYEE/customer permissions passed the existing API/unit tests. Red cancellation styling, status/refund badges and customer message wiring were inspected; a fully authenticated live-browser click-through of every state remains a manual UI check, not claimed as automated end-to-end coverage.
+
+**Cleanup confirmed:** all dummy orders/items, embedded refund/status histories, customer/staff notifications, addresses/users, products/materials/variants were deleted by exact run IDs. No photos were uploaded; the original photo record/file was untouched. Final counts match baseline: orders **10**, staff notifications **33**, customer notifications **18**, photos **1**, users **10**, variants **10**. Every original variant's stock AND updatedAt match baseline. The dev DB's order-item foreign key required explicit dummy-item deletion before deleting dummy orders; no schema was changed.
+
+**Tests/limits:** final full backend suite **636/636 passed**, including duplicate/concurrent cancellation tests; backend typecheck/build and frontend build passed. Frontend focused stock/refresh/wishlist suite: **26/26 passed**. Broader frontend suite: **234/257 passed, 23 failed**, including missing-module resolution and older UI-contract assertions; those unrelated failures were not altered. No dependencies, endpoints, auth rules, prices, offers, UI layout, or schema were changed.
+
+
 ## Audit Log — Incremental application audit (6 November 2026)
 
 Work is performed in the requested order. A task is checked only after its code and validation are complete. Previous performance work is documented separately in `docs/performance-audit.md`; its results are not substituted for this audit's before/after tests.

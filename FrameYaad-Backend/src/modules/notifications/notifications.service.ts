@@ -100,6 +100,7 @@ export const deleteNotification = async (
   userId: string,
   role: UserRole,
 ): Promise<void> => {
+  if(role===UserRole.CUSTOMER)throw new ApiError(403,'Customer notifications cannot be deleted.','FORBIDDEN');
   const result = await prisma.notification.deleteMany({
     where: { id, ...audienceWhere(userId, role) },
   });
