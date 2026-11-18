@@ -1,5 +1,10 @@
 # FrameYaad Backend
 
+## 2026-11-18: Local database startup connection fix
+
+RCA: both local connection URLs used Supabase session mode on port 5432. DNS/TCP worked, but the database returned EMAXCONNSESSION (15-client session pool exhausted); offer seeding was merely the first query to encounter it.
+Runtime now consistently uses DATABASE_URL, configured locally for transaction mode (6543, pgbouncer=true, connection_limit=2). DIRECT_URL remains unchanged for Prisma tooling. Read-only SELECT 1 passed through transaction mode; no records, schema, seeds, or business rules were changed.
+
 ## Customer notification history
 
 2026-11-18: Customer notifications now use one source for the navbar popup and Profile page, show full history, and are read-only (no delete).
