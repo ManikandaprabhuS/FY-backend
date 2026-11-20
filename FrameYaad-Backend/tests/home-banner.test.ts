@@ -26,6 +26,13 @@ it("First Order marketing content is never gated by customer history",async()=>{
  for(let i=0;i<3;i++)expect((await publicHomepageBanner())?.code).toBe("FIRST_ORDER");
  expect(m.history).not.toHaveBeenCalled();expect(m.identity).not.toHaveBeenCalled();
 });
+
+it.each(["NEW_YEAR","CHRISTMAS","PONGAL"])("features live %s values and hides a disabled seasonal offer",async code=>{
+ m.setting.mockResolvedValue({enabled:true,featuredOfferCode:code});
+ m.offer.mockResolvedValue({code,title:code+" Offer",enabled:true,percentage:new Prisma.Decimal(12),minOrderAmount:new Prisma.Decimal(2000)});
+ expect(await publicHomepageBanner()).toMatchObject({code,percentage:12,minOrderAmount:2000});
+ m.offer.mockResolvedValue({code,enabled:false});invalidateHomepageBanner();expect(await publicHomepageBanner()).toBeNull();
+});
 it("invalidating after offer changes reads updated percentages/minimums immediately",async()=>{
  await publicHomepageBanner();m.offer.mockResolvedValue({code:"BIG_ORDER",title:"Big Order Offer",enabled:true,percentage:new Prisma.Decimal(12),minOrderAmount:new Prisma.Decimal(3000)});
  invalidateHomepageBanner();expect(await publicHomepageBanner()).toMatchObject({percentage:12,minOrderAmount:3000});

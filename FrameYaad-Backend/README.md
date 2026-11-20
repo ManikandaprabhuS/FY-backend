@@ -1,5 +1,47 @@
 # FrameYaad Backend
 
+## 2026-11-20: Seasonal offers (New Year, Christmas, Pongal)
+
+Final verification completed 2026-11-21 (IST). The existing offers system now has five fixed codes, ordered First Order, Big Order, then the Seasonal offers group: NEW_YEAR ("New Year Offer"), CHRISTMAS ("Christmas Offer"), PONGAL ("Pongal Offer"). Each new missing record starts at **10%**, minimum **Rs. 1,000**, **disabled**, version 1, with the same updater/timestamp fields as Big Order. These are placeholders, not scheduled promotions: staff enable/edit them manually. The existing insert-only seed uses skipDuplicates and never overwrites edited settings, including seasonal records.
+
+All four threshold offers share one eligibility rule: server-recomputed cart subtotal must be **strictly greater than** that offer's live database minimum. Percentage/minimum/enabled/version come from the database, not client constants. First Order eligibility, existing Big Order values, money rounding, COD, stock/order logic and historical orders are unchanged. Only one offer applies; choosing another replaces it and the existing largest-discount "Best offer" rule remains. Disabled/changed versions are rejected and refreshed with an amber warning, including a change between checkout preflight and order submission. Local/temporary customer photos are retained on that validation failure.
+
+Admin/employee cards reuse the same component, input validation, high-discount/deactivation confirms, optimistic rollback, version conflicts, usage totals and audit history. Codes/titles are not editable and no create/delete endpoints or controls were added. The existing update whitelist remains percentage, minOrderAmount and enabled, plus the required optimistic version. The banner selector and public response/session-cache validator accept all five codes; live title/percentage/minimum drive the label and copy, and a disabled featured offer returns no banner. Existing cache keys, authentication and private/public cache boundaries remain unchanged.
+
+Order snapshots already store code/title/percent/discount/subtotal/paid total generically. Admin/customer details, confirmation and order exports reuse those snapshots; revenue responses now include the same saved offer fields and the existing PDF detail table displays them without changing revenue calculations. No separate order invoice or order-email generator was found in these repositories, so no new invoice/sending workflow was invented; authentication/appointment email integrations are untouched.
+
+### Required compatibility setup
+
+The Prisma fields are strings, but PostgreSQL had three additional CHECK constraints restricted to two codes. The narrow idempotent compatibility migration extends only offers_code_check, offers_check and homepage_banner_featuredOfferCode_check. No Prisma model/column, existing row, RLS policy or storage behavior is changed.
+
+On the reviewed dev database, run from the backend folder:
+
+```powershell
+npx tsx prisma/apply-seasonal-offers.ts --apply
+```
+
+This transaction applies prisma/compatibility/seasonal-offers.sql and invokes the existing insert-only seed; it checks existing offer settings and order count/total invariants. It was run twice successfully on the explicitly confirmed dedicated dev database. Normal admin-offer setup now includes this compatibility SQL, and fresh banner setup accepts five codes. The guarded helper refuses NODE_ENV=production: for production, review/apply the SQL **in a transaction before deploying/restarting the updated backend**, then let the existing startup seed insert missing disabled records. No production database or deployment was touched here.
+
+### Results
+
+| Check | Result |
+| --- | --- |
+| Seed twice / preserve edited values | Passed in dev and automated tests; five records, no overwrite or duplicate |
+| Each seasonal offer at 12%, minimum Rs. 2,000 | Rs. 1,999 and exactly Rs. 2,000 ineligible; Rs. 2,500 saves Rs. 300, total Rs. 2,200 |
+| Multiple eligible / replacement | Five cards rendered; unique larger discount tagged Best offer; only one selected |
+| Disable/change after apply | New order intent rejected with refreshed offers/totals; client shows amber warning and can choose another |
+| Validation / permissions | Invalid percentage 0/-5/101/blank/text and invalid minimum 0/negative/blank/text rejected; ADMIN and EMPLOYEE allowed, customer/guest denied; no create/delete |
+| Five featured banners | Guest/logged-in responses match live settings; each hides while its featured offer is disabled; seasonal session-cache acceptance tested |
+| Orders / details / export / revenue / PDF | All three saved snapshots verified; PDF table tests include their title, 12%, Rs. 300 discount and Rs. 2,200 paid total |
+| Responsive UI | Actual admin/checkout components checked at 1440px and 375px with five offers, no page overflow; mobile order confirmation passed |
+| Automated | Backend 655/655 (58 files); 31 focused frontend/banner/PDF tests pass; both production builds, backend typecheck and focused lint pass |
+| Broad frontend regression | 284/307 pass; 23 existing unrelated missing-mock/module and stale UI assertions remain, logged without changing unrelated features |
+
+Dev tests used isolated "Dummy Test Order" users/products/orders and a test-process token-verification adapter (real role/ownership checks still read the DB), not real Supabase Auth accounts or external email sending. All dummy orders/items/notifications/fixtures and test audit entries were removed; fixture stock was restored before removal. Existing stock/timestamps, revenue/counts, notification counts, offer settings/versions/updaters and banner settings were compared with the baseline and restored. No photos were uploaded. The three new disabled placeholder records remain as the requested feature. Original order retry/idempotency behavior was preserved; separate test checkouts used distinct intents.
+
+Results: D:\FrameYaad\seasonal-offers-results.json (cleanup=true), seasonal-backend-tests.log, seasonal-frontend-tests.log; responsive screenshots: seasonal-admin-1440.png / seasonal-admin-375.png and seasonal-checkout-1440.png / seasonal-checkout-375.png. Browser harness: D:\FrameYaad\seasonal-offers-dev-check.cjs. Existing broad-test verification artifacts under tmp may be regenerated by the suite; they are not application/data changes. No dependencies added or removed.
+
+
 ## 2026-11-18: Local database startup connection fix
 
 RCA: both local connection URLs used Supabase session mode on port 5432. DNS/TCP worked, but the database returned EMAXCONNSESSION (15-client session pool exhausted); offer seeding was merely the first query to encounter it.

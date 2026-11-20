@@ -6,7 +6,8 @@ import { ApiError } from "../../utils/api-error";
 import { assertAvailableStock } from "../../utils/stock";
 import type { OfferCode } from "./coupons.config";
 import { runtimeOffers,offerDescription } from "../offers/offers.service";
-import { normalizeOfferEmail, normalizeOfferPhone, offerTotals } from "./offer-pricing";
+import { normalizeOfferEmail, normalizeOfferPhone, offerTotals, thresholdOfferEligible } from "./offer-pricing";
+import {isThresholdOffer} from "./coupons.config";
 import { checkoutItemsSchema } from "./checkout.schemas";
 import type { z } from "zod";
 type DB = Prisma.TransactionClient;
@@ -56,7 +57,7 @@ export const eligibleOffers = async (db:DB,userId:string,subtotal:Prisma.Decimal
   const {identity,history}=context;
   const amount=new Prisma.Decimal(resolvedSubtotal);
   const offers=settings.filter(offer=>offer.enabled&&(offer.code==="FIRST_ORDER"
-    ? identity.email.length>0&&!history : amount.gt(offer.minOrderAmount??0)))
+    ? identity.email.length>0&&!history : thresholdOfferEligible(offer,amount)))
     .map(offer=>({code:offer.code as OfferCode,title:offer.title,description:offerDescription(offer),percent:Number(offer.percentage),version:offer.version,
       discountAmount:offerTotals(amount,Number(offer.percentage)).discountAmount.toNumber(),total:offerTotals(amount,Number(offer.percentage)).total.toNumber(),bestOffer:false}));
   const best=Math.max(0,...offers.map(o=>o.discountAmount));
@@ -64,12 +65,12 @@ export const eligibleOffers = async (db:DB,userId:string,subtotal:Prisma.Decimal
   const bigOrderRemovalMessage=big?.enabled&&amount.lte(big.minOrderAmount??0)
     ? "Offer removed. Order total is below Rs. "+Number(big.minOrderAmount).toLocaleString("en-IN")+"."
     : "This offer is no longer available";
-  // Advertise the enabled Big Order rule without making it eligible.
-  const unavailableOffers=big?.enabled&&amount.lte(big.minOrderAmount??0)?[{
-    code:big.code as OfferCode,title:big.title,description:offerDescription(big),
-    percent:Number(big.percentage),version:big.version,discountAmount:0,total:amount.toNumber(),bestOffer:false,
-    unavailableReason:"Available on orders above Rs. "+Number(big.minOrderAmount).toLocaleString("en-IN")+"."
-  }]:[];
+  // Each enabled threshold rule can be advertised without making it eligible.
+  const unavailableOffers=settings.filter(offer=>offer.enabled&&isThresholdOffer(offer.code)&&!thresholdOfferEligible(offer,amount)).map(offer=>({
+    code:offer.code as OfferCode,title:offer.title,description:offerDescription(offer),
+    percent:Number(offer.percentage),version:offer.version,discountAmount:0,total:amount.toNumber(),bestOffer:false,
+    unavailableReason:"Available on orders above Rs. "+Number(offer.minOrderAmount).toLocaleString("en-IN")+"."
+  }));
   return {identity,offers:offers.map(o=>({...o,bestOffer:offers.length>1&&o.discountAmount===best})),unavailableOffers,bigOrderRemovalMessage};
 };
 export const lockOfferIdentity = async(db:DB,email:string,phone:string)=>{

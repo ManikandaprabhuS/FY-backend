@@ -4,6 +4,7 @@ import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import type { z } from "zod";
 import type { updateOfferSchema } from "./offers.schemas";
+import {OFFER_CODES} from "../checkout/coupons.config";
 export const offerDescription=(offer:Pick<Offer,"code"|"percentage"|"minOrderAmount">)=>offer.code==="FIRST_ORDER"
  ? Number(offer.percentage)+"% off on your first order"
  : Number(offer.percentage)+"% off on orders above Rs. "+Number(offer.minOrderAmount).toLocaleString("en-IN");
@@ -29,10 +30,10 @@ export const lockOfferSettings=async(db:Prisma.TransactionClient,code:string)=>{
 };
 const serialize=(offer:Setting)=>({...offer,description:offerDescription(offer),percentage:Number(offer.percentage),minOrderAmount:offer.minOrderAmount==null?null:Number(offer.minOrderAmount)});
 export const listAdminOffers=async()=>{
- const [offers,usage]=await Promise.all([runtimeOffers(prisma,true),prisma.order.groupBy({by:["couponCode"],where:{couponCode:{in:["FIRST_ORDER","BIG_ORDER"]}},_count:{_all:true},_sum:{discountAmount:true}})]);
+ const [offers,usage]=await Promise.all([runtimeOffers(prisma,true),prisma.order.groupBy({by:["couponCode"],where:{couponCode:{in:[...OFFER_CODES]}},_count:{_all:true},_sum:{discountAmount:true}})]);
  const ids=[...new Set(offers.flatMap(o=>o.updatedBy?[o.updatedBy]:[]))];
  const users=ids.length?await prisma.user.findMany({where:{id:{in:ids}},select:{id:true,name:true}}):[];
- return offers.map(o=>({...serialize(o),updatedBy:o.updatedBy?{id:o.updatedBy,name:users.find(u=>u.id===o.updatedBy)?.name??"Former staff"}:null,
+ return OFFER_CODES.flatMap(code=>offers.filter(o=>o.code===code)).map(o=>({...serialize(o),updatedBy:o.updatedBy?{id:o.updatedBy,name:users.find(u=>u.id===o.updatedBy)?.name??"Former staff"}:null,
  usage:{orders:usage.find(u=>u.couponCode===o.code)?._count._all??0,totalDiscount:Number(usage.find(u=>u.couponCode===o.code)?._sum.discountAmount??0)}}));
 };
 export const updateOffer=async(code:string,input:z.infer<typeof updateOfferSchema>,actor:{id:string;name:string})=>{

@@ -1,5 +1,6 @@
 import { z } from "zod";
-export const fixedOfferCode=z.enum(["FIRST_ORDER","BIG_ORDER"]);
+import {OFFER_CODES} from "../checkout/coupons.config";
+export const fixedOfferCode=z.enum(OFFER_CODES);
 export const updateOfferSchema=z.object({
  version:z.number().int().positive(),
  percentage:z.number().finite().gt(0).max(100).refine(n=>Math.abs(n*100-Math.round(n*100))<1e-8,"Use at most two decimal places").optional(),

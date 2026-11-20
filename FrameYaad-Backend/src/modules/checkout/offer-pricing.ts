@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import {isThresholdOffer} from "./coupons.config";
+export const thresholdOfferEligible=(offer:{code:string;minOrderAmount:Prisma.Decimal.Value|null},subtotal:Prisma.Decimal.Value)=>isThresholdOffer(offer.code)&&new Prisma.Decimal(subtotal).gt(offer.minOrderAmount??0);
 export const normalizeOfferEmail = (value: string) => value.trim().toLowerCase();
 export const normalizeOfferPhone = (value: string | null | undefined) => {
   const digits = (value ?? "").replace(/\D/g, "");

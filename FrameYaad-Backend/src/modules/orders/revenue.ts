@@ -11,8 +11,10 @@ export async function revenueReport(raw:unknown){
  const [all,orders]=await Promise.all([
   prisma.order.aggregate({where:revenueWhere,_sum:{totalPrice:true},_count:{_all:true}}),
   prisma.order.findMany({where:{...revenueWhere,createdAt:{gte:q.from,lte:q.to}},orderBy:{createdAt:"asc"},
-   select:{id:true,orderNumber:true,createdAt:true,status:true,totalPrice:true,user:{select:{name:true}}}})
+   select:{id:true,orderNumber:true,createdAt:true,status:true,totalPrice:true,couponCode:true,couponTitle:true,discountPercent:true,discountAmount:true,subtotal:true,user:{select:{name:true}}}})
  ]);
  return {summary:revenueSummary(orders),totalRevenue:Number(all._sum.totalPrice??0),totalOrders:all._count._all,
-  orders:orders.map(o=>({id:o.id,createdAt:o.createdAt,orderNumber:o.orderNumber,orderStatus:o.status,totalAmount:Number(o.totalPrice),user:o.user}))};
+  orders:orders.map(o=>({id:o.id,createdAt:o.createdAt,orderNumber:o.orderNumber,orderStatus:o.status,totalAmount:Number(o.totalPrice),user:o.user,
+   couponCode:o.couponCode,couponTitle:o.couponTitle,discountPercent:Number(o.discountPercent??0),subtotal:Number(o.subtotal??o.totalPrice),discount:Number(o.discountAmount??0),
+   exportCoupon:o.couponTitle?o.couponTitle+" ("+Number(o.discountPercent??0)+"%)":o.couponCode??"-"}))};
 }

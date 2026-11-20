@@ -1,10 +1,11 @@
 import {type Prisma,UserRole} from "@prisma/client";
 import {z} from "zod";
+import {OFFER_CODES} from "../checkout/coupons.config";
 import {prisma} from "../../prisma/client";
 import {ApiError} from "../../utils/api-error";
 import {cachedBannerConfig,invalidateHomepageBanner,type BannerOffer} from "./banner-cache";
 export const BANNER_ID="homepage_banner";
-export const updateBannerSchema=z.object({enabled:z.boolean().optional(),featuredOfferCode:z.enum(["BIG_ORDER","FIRST_ORDER"]).optional()}).strict().refine(value=>Object.keys(value).length>0,"No banner changes supplied");
+export const updateBannerSchema=z.object({enabled:z.boolean().optional(),featuredOfferCode:z.enum(OFFER_CODES).optional()}).strict().refine(value=>Object.keys(value).length>0,"No banner changes supplied");
 export const seedHomepageBanner=(db:Prisma.TransactionClient=prisma)=>db.homepageBanner.createMany({data:[{id:BANNER_ID,enabled:true,featuredOfferCode:"BIG_ORDER"}],skipDuplicates:true});
 export const getAdminBanner=async()=>{
  const settings=await prisma.homepageBanner.findUniqueOrThrow({where:{id:BANNER_ID}});
@@ -30,7 +31,7 @@ export const publicHomepageBanner=async():Promise<BannerOffer|null>=>{
   const setting=await prisma.homepageBanner.findUnique({where:{id:BANNER_ID},select:{enabled:true,featuredOfferCode:true,bannerImageUrl:true}});
   if(!setting?.enabled)return {enabled:false,offer:null};
   const offer=await prisma.offer.findUnique({where:{code:setting.featuredOfferCode},select:{code:true,title:true,enabled:true,percentage:true,minOrderAmount:true}});
-  if(!offer?.enabled||!["FIRST_ORDER","BIG_ORDER"].includes(offer.code))return {enabled:true,offer:null};
+  if(!offer?.enabled||!OFFER_CODES.some(code=>code===offer.code))return {enabled:true,offer:null};
   return {enabled:true,offer:{bannerImageUrl:setting.bannerImageUrl??null,code:offer.code as BannerOffer["code"],title:offer.title,percentage:Number(offer.percentage),minOrderAmount:offer.minOrderAmount===null?null:Number(offer.minOrderAmount)}};
  });
  if(!config.enabled||!config.offer)return null;
