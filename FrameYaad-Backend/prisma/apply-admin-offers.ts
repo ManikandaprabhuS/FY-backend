@@ -6,7 +6,7 @@ import {seedOffers} from "../src/modules/offers/offers.seed";
 async function main(){
  if(env.NODE_ENV==="production"||!process.argv.includes("--apply"))throw new Error("Use --apply on the reviewed test database.");
  const before=await prisma.order.aggregate({_count:true,_sum:{totalPrice:true}});
- const sql=readFileSync(resolve("prisma/compatibility/admin-offers.sql"),"utf8");
+ const sql=readFileSync(resolve("prisma/compatibility/admin-offers.sql"),"utf8")+"\n"+readFileSync(resolve("prisma/compatibility/seasonal-offers.sql"),"utf8");
  await prisma.$transaction(async tx=>{
   for(const statement of sql.split(";").map(s=>s.trim()).filter(Boolean))await tx.$executeRawUnsafe(statement);
   await seedOffers(tx);

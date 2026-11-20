@@ -6,8 +6,8 @@ import { eligibleOffers,validateOffer,lockOfferIdentity,priceCheckoutItems,hasOr
 import { checkoutSchema } from "../src/modules/orders/orders.schemas";
 const fixture=(history=false)=>({offer:{findMany:vi.fn().mockResolvedValue(Object.values(CHECKOUT_OFFERS).map(o=>({...o,percentage:new Prisma.Decimal(o.percentage),minOrderAmount:o.minOrderAmount==null?null:new Prisma.Decimal(o.minOrderAmount),version:1,updatedBy:null,updatedAt:new Date()})))},user:{findUniqueOrThrow:vi.fn().mockResolvedValue({email:" NEW@EXAMPLE.COM ",phoneNumber:"+91 98765-43210"})},$queryRaw:vi.fn().mockResolvedValue([{found:history}])});
 const db=(value:unknown)=>value as Prisma.TransactionClient;
-describe("two checkout offers",()=>{
- it("has exactly two codes in one config",()=>expect(Object.keys(CHECKOUT_OFFERS)).toEqual(["FIRST_ORDER","BIG_ORDER"]));
+describe("fixed checkout offers",()=>{
+ it("has five fixed codes in one config",()=>expect(Object.keys(CHECKOUT_OFFERS)).toEqual(["FIRST_ORDER","BIG_ORDER","NEW_YEAR","CHRISTMAS","PONGAL"]));
  it("normalizes email and Indian phone without corrupting other lengths",()=>{
   expect(normalizeOfferEmail(" A@Example.COM ")).toBe("a@example.com");
   expect(normalizeOfferPhone("+91 98765-43210")).toBe("9876543210");

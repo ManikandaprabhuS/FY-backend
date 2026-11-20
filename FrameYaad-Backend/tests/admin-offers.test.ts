@@ -32,7 +32,7 @@ it("seeds with skipDuplicates and never supplies update data",async()=>{
  rows[0]!.percentage=new Prisma.Decimal(8);await seedOffers();await seedOffers();
  expect(mocks.createMany).toHaveBeenCalledTimes(2);
  const call=mocks.createMany.mock.calls[0]?.[0] as {data:unknown[];skipDuplicates:boolean};
- expect(call.skipDuplicates).toBe(true);expect(call.data).toHaveLength(2);
+ expect(call.skipDuplicates).toBe(true);expect(call.data).toHaveLength(5);
  expect(rows[0]!.percentage.toNumber()).toBe(8);
 });
 it("records exactly the changed fields and prevents stale edits",async()=>{

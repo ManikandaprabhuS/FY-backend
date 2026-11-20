@@ -36,3 +36,12 @@ it("has no create/delete endpoints and returns clear edit conflict",async()=>{
  mocks.update.mockRejectedValue(new ApiError(409,"Updated by another staff member","OFFER_CONFLICT"));
  expect((await request(app).patch("/api/v1/offers/FIRST_ORDER").set("Authorization","Bearer test").send({version:1,percentage:8})).status).toBe(409);
 });
+
+it.each(["NEW_YEAR","CHRISTMAS","PONGAL"])("%s reuses verified employee editing and rejects customers/guests",async code=>{
+ mocks.user.mockResolvedValue({id:"staff",name:"Verified Staff",role:"EMPLOYEE",isActive:true,isEmailVerified:true,isPhoneNumberVerified:false});
+ expect((await request(app).patch('/api/v1/offers/'+code).set('Authorization','Bearer test').send({version:1,percentage:12,minOrderAmount:2000})).status).toBe(200);
+ expect(mocks.update).toHaveBeenCalledWith(code,{version:1,percentage:12,minOrderAmount:2000},{id:'staff',name:'Verified Staff'});
+ mocks.user.mockResolvedValue({id:'customer',name:'Customer',role:'CUSTOMER',isActive:true,isEmailVerified:true,isPhoneNumberVerified:false});
+ expect((await request(app).patch('/api/v1/offers/'+code).set('Authorization','Bearer test').send({version:1,enabled:true})).status).toBe(403);
+ expect((await request(app).patch('/api/v1/offers/'+code).send({version:1,enabled:true})).status).toBe(401);
+});
