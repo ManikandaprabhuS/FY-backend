@@ -45,7 +45,15 @@ it("seeds without overwriting edits and records changes in the existing offers a
  await seedHomepageBanner();expect(m.seed).toHaveBeenCalledWith({data:[{id:"homepage_banner",enabled:true,featuredOfferCode:"BIG_ORDER"}],skipDuplicates:true});
  const previous={id:"homepage_banner",enabled:true,featuredOfferCode:"BIG_ORDER",updatedBy:null,updatedAt:new Date()};
  m.get.mockResolvedValue(previous);m.user.mockResolvedValue({id:"staff",name:"Staff"});
- m.transaction.mockImplementation((callback:(tx:unknown)=>Promise<unknown>)=>callback({$queryRawUnsafe:vi.fn(),homepageBanner:{findUniqueOrThrow:m.get,update:m.update},offerAudit:{createMany:m.audit}}));
+ m.transaction.mockImplementation((callback:(tx:unknown)=>Promise<unknown>)=>callback({$queryRawUnsafe:vi.fn(),offer:{findUnique:m.offer},homepageBanner:{findUniqueOrThrow:m.get,update:m.update},offerAudit:{createMany:m.audit}}));
  await updateHomepageBanner({enabled:false,featuredOfferCode:"FIRST_ORDER"},{id:"staff",name:"Staff"});
  expect(m.audit).toHaveBeenCalledWith({data:[{offerCode:"FIRST_ORDER",field:"banner.enabled",oldValue:true,newValue:false,actorId:"staff",actorName:"Staff"},{offerCode:"FIRST_ORDER",field:"banner.featuredOfferCode",oldValue:"BIG_ORDER",newValue:"FIRST_ORDER",actorId:"staff",actorName:"Staff"}]});
+});
+
+it.each([false,null])("rejects an inactive or missing selected offer even when its code is unchanged: %s",async enabled=>{
+ m.get.mockResolvedValue({id:"homepage_banner",enabled:true,featuredOfferCode:"BIG_ORDER"});
+ m.offer.mockResolvedValue(enabled===null?null:{enabled});
+ m.transaction.mockImplementation((callback:(tx:unknown)=>Promise<unknown>)=>callback({$queryRawUnsafe:vi.fn(),offer:{findUnique:m.offer},homepageBanner:{findUniqueOrThrow:m.get,update:m.update},offerAudit:{createMany:m.audit}}));
+ await expect(updateHomepageBanner({featuredOfferCode:"BIG_ORDER"},{id:"staff",name:"Staff"})).rejects.toMatchObject({statusCode:400});
+ expect(m.update).not.toHaveBeenCalled();expect(m.audit).not.toHaveBeenCalled();
 });

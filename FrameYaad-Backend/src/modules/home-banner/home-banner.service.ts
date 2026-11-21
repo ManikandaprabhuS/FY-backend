@@ -17,6 +17,11 @@ export const updateHomepageBanner=async(input:z.infer<typeof updateBannerSchema>
  await prisma.$transaction(async tx=>{
   await tx.$queryRawUnsafe("SELECT id FROM public.homepage_banner WHERE id=$1 FOR UPDATE",BANNER_ID);
   const previous=await tx.homepageBanner.findUniqueOrThrow({where:{id:BANNER_ID}});
+  if(input.featuredOfferCode!==undefined){
+   await tx.$queryRawUnsafe('SELECT code FROM public.offers WHERE code=$1 FOR SHARE',input.featuredOfferCode);
+   const selected=await tx.offer.findUnique({where:{code:input.featuredOfferCode},select:{enabled:true}});
+   if(!selected?.enabled)throw new ApiError(400,"Choose an active offer. This offer is off or unavailable.","INACTIVE_FEATURED_OFFER");
+  }
   const changes:Array<{field:string;oldValue:string|boolean;newValue:string|boolean}>=[];
   if(input.enabled!==undefined&&input.enabled!==previous.enabled)changes.push({field:"enabled",oldValue:previous.enabled,newValue:input.enabled});
   if(input.featuredOfferCode!==undefined&&input.featuredOfferCode!==previous.featuredOfferCode)changes.push({field:"featuredOfferCode",oldValue:previous.featuredOfferCode,newValue:input.featuredOfferCode});
