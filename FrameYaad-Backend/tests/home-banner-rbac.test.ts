@@ -9,6 +9,7 @@ vi.mock("../src/modules/home-banner/home-banner.service",async()=>{
  return {...actual,getAdminBanner:m.get,updateHomepageBanner:m.update,publicHomepageBanner:m.public};
 });
 import {app} from "../src/app";
+import {ApiError} from "../src/utils/api-error";
 beforeEach(()=>{
  vi.clearAllMocks();const id=randomUUID();m.auth.mockResolvedValue({data:{user:{id,email_confirmed_at:"2026-01-01"}},error:null});
  m.user.mockResolvedValue({id,role:"ADMIN",name:"Staff",isActive:true,isEmailVerified:true,isPhoneNumberVerified:false});
@@ -34,6 +35,11 @@ it("rejects guests/customers and rejects non-whitelisted input",async()=>{
 it("rate limits banner updates",async()=>{
  for(let i=0;i<20;i++)expect((await request(app).patch("/api/v1/offers/homepage-banner").set("Authorization","Bearer test").send({enabled:true})).status).toBe(200);
  expect((await request(app).patch("/api/v1/offers/homepage-banner").set("Authorization","Bearer test").send({enabled:true})).status).toBe(429);
+});
+it("returns a clear 400 response when an inactive featured offer is rejected",async()=>{
+ m.update.mockRejectedValue(new ApiError(400,"Choose an active offer. This offer is off or unavailable.","INACTIVE_FEATURED_OFFER"));
+ const response=await request(app).patch("/api/v1/offers/homepage-banner").set("Authorization","Bearer test").send({featuredOfferCode:"BIG_ORDER"});
+ expect(response.status).toBe(400);expect(JSON.stringify(response.body)).toContain("Choose an active offer");
 });
 
 it("treats expired tokens as guests only on the public banner",async()=>{
