@@ -8,7 +8,7 @@ vi.mock("../src/prisma/client",()=>({prisma:{
 }}));
 vi.mock("../src/config/supabase",()=>({supabaseAdmin:{auth:{getUser:m.auth}},createUserSupabaseClient:vi.fn()}));
 import {app} from "../src/app";
-import {updateRefund,enqueueRefundNotification,refundMessage} from "../src/modules/orders/order-refunds";
+import {updateRefund,enqueueRefundNotification,processRefundNotification,refundMessage} from "../src/modules/orders/order-refunds";
 import {updateOrderStatus} from "../src/modules/orders/orders.service";
 import {processOrderStatusEffects} from "../src/modules/orders/order-status-effects";
 import {revenueSummary,revenueWhere} from "../src/modules/orders/revenue";
@@ -92,9 +92,9 @@ it("refund notifications reuse their event id and failures cannot fail the updat
  vi.useFakeTimers();
  try{
   await updateRefund(id,{status:"INITIATED",expectedRefundStatus:null},admin);
-  enqueueRefundNotification(order as Parameters<typeof enqueueRefundNotification>[0]);await vi.runAllTimersAsync();
+  await processRefundNotification(order as Parameters<typeof processRefundNotification>[0]);
   const first=(m.customer.mock.calls[0]?.[0] as {where:{id:string}}).where.id;
-  enqueueRefundNotification(order as Parameters<typeof enqueueRefundNotification>[0]);await vi.runAllTimersAsync();
+  await processRefundNotification(order as Parameters<typeof processRefundNotification>[0]);
   expect((m.customer.mock.calls[1]?.[0] as {where:{id:string}}).where.id).toBe(first);
   m.customer.mockRejectedValue(new Error("offline"));
   expect(()=>enqueueRefundNotification(order as Parameters<typeof enqueueRefundNotification>[0])).not.toThrow();await vi.runAllTimersAsync();

@@ -1,6 +1,6 @@
 import { env } from "../config/env";
 
-export interface EmailMessage { to: string; subject: string; html: string; text?: string }
+export interface EmailMessage { to: string; subject: string; html: string; text?: string; from?:string }
 export class EmailDeliveryError extends Error {
   constructor(public readonly providerStatus?: number) {
     super("Email delivery failed. Check the Resend key and verified sender configuration.");
@@ -16,11 +16,11 @@ export const assertEmailConfigured = (): void => {
 };
 
 // Shared Resend transport; never log message bodies, OTPs, or authorization headers.
-export const sendEmail = async (message: EmailMessage): Promise<{ id: string }> => {
+export const sendEmail = async (message: EmailMessage, idempotencyKey?: string): Promise<{ id: string }> => {
   assertEmailConfigured();
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
     body: JSON.stringify({ from: env.EMAIL_FROM, ...message }),
     signal: AbortSignal.timeout(15_000),
   });

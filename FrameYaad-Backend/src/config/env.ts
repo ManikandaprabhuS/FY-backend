@@ -23,6 +23,8 @@ const environmentSchema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(1).optional(),
   ADMIN_EMAIL: z.email().optional(),
+  EMAIL_OUTBOX_DELIVERY_ENABLED: z.enum(['true','false']).default('false').transform(value=>value==='true'),
+  RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);

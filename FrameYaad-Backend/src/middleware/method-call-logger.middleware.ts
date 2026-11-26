@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 
 import { logger } from "../config/logger";
+import { isNotificationRead } from '../modules/notifications/notification-logging';
 
 interface MethodLogDefinition {
   method: string;
@@ -74,6 +75,7 @@ export const methodCallMessage = (method: string, path: string): string =>
   ?? `${method} ${path} API method is calling`;
 
 export const logMethodCall: RequestHandler = (request, _response, next) => {
+  if (isNotificationRead(request.method, request.path)) { next(); return; }
   const message = methodCallMessage(request.method, request.path);
   logger.debug(
     { requestId: request.requestId, httpMethod: request.method, path: request.path },

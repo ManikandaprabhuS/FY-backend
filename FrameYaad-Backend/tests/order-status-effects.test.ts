@@ -16,12 +16,13 @@ it("skips email if no transport is configured, without losing the notification",
 it("does nothing for missing events",async()=>{
  await processOrderStatusEffects("order","unknown");expect(m.upsert).not.toHaveBeenCalled();
 });
-it("notification failures stay in the background and exhaust bounded retries without throwing",async()=>{
+it("API wakeup does not send inline; durable worker receives processing failures for retry",async()=>{
  vi.useFakeTimers();
  try{
   m.upsert.mockRejectedValue(new Error("Forced notification failure"));
   expect(()=>enqueueOrderStatusEffects("order","event")).not.toThrow();
   await vi.runAllTimersAsync();
-  expect(m.upsert).toHaveBeenCalledTimes(3);expect(m.send).not.toHaveBeenCalled();
+  expect(m.upsert).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+  await expect(processOrderStatusEffects('order','event')).rejects.toThrow('Forced notification failure');
  }finally{vi.useRealTimers();}
 });

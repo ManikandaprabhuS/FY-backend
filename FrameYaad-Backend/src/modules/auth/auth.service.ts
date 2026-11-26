@@ -8,6 +8,7 @@ import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { userViewSelect, type UserView } from "../../utils/user-view";
 import { createCustomerRegistrationNotifications } from "../notifications/notification-events.service";
+import {wakeDeliveryWorker} from '../../services/delivery/outbox-signal';
 import type { z } from "zod";
 import type {
   changePasswordSchema,
@@ -127,6 +128,7 @@ export const registerCustomer = async (input: CustomerRegistrationInput): Promis
     await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
       app_metadata: { role: UserRole.CUSTOMER },
     });
+    wakeDeliveryWorker();
     return { session: data.session, user };
   } catch (profileError) {
     await supabaseAdmin.auth.admin.deleteUser(authUser.id);
@@ -229,7 +231,9 @@ export const confirmCustomerSession = async (tokens: {access_token:string;refres
   if(verified.error||!verified.data.user?.email_confirmed_at)throw new ApiError(401,"Email confirmation could not be verified","EMAIL_NOT_VERIFIED");
   const user=await prisma.user.findUnique({where:{id:verified.data.user.id},select:userViewSelect});
   if(!user||user.role!==UserRole.CUSTOMER||!user.isActive)throw new ApiError(403,"This customer account is unavailable","ACCOUNT_UNAVAILABLE");
-  return {session:data.session,user};
+  const confirmedUser=user.isEmailVerified?user:await prisma.user.update({where:{id:user.id},data:{isEmailVerified:true},select:userViewSelect});
+  wakeDeliveryWorker();
+  return {session:data.session,user:confirmedUser};
 };
 
 export const logout = async (accessToken?: string): Promise<void> => {

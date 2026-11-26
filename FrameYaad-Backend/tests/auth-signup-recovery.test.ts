@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   signUp: vi.fn(), verifyOtp: vi.fn(), resetPasswordForEmail: vi.fn(), setSession: vi.fn(),
   getUser: vi.fn(), updateUser: vi.fn(), signOut: vi.fn(), deleteUser: vi.fn(),
-  findUser: vi.fn(), createUser: vi.fn(), transaction: vi.fn(), notify: vi.fn(),
+  findUser: vi.fn(), createUser: vi.fn(), updateProfile:vi.fn(), transaction: vi.fn(), notify: vi.fn(),
 }));
 
 vi.mock("../src/config/supabase", () => ({
@@ -17,7 +17,7 @@ vi.mock("../src/config/supabase", () => ({
   } },
 }));
 vi.mock("../src/prisma/client", () => ({ prisma: {
-  user: { findFirst: mocks.findUser, findUnique:mocks.findUser }, $transaction: mocks.transaction,
+  user: { findFirst: mocks.findUser, findUnique:mocks.findUser,update:mocks.updateProfile }, $transaction: mocks.transaction,
 } }));
 vi.mock("../src/modules/notifications/notification-events.service", () => ({ createCustomerRegistrationNotifications: mocks.notify }));
 
@@ -98,8 +98,10 @@ describe('confirmation session bridge',()=>{
   mocks.setSession.mockResolvedValue({data:{session},error:null});
   mocks.getUser.mockResolvedValue({data:{user:{...user,email_confirmed_at:'2026-11-26T00:00:00Z'}},error:null});
   mocks.findUser.mockResolvedValue({...user,role:'CUSTOMER',isActive:true});
+  mocks.updateProfile.mockResolvedValue({...user,role:'CUSTOMER',isActive:true,isEmailVerified:true});
   expect((await confirmCustomerSession({access_token:'a',refresh_token:'r'})).session).toEqual(session);
   expect(mocks.createUser).not.toHaveBeenCalled();expect(mocks.signUp).not.toHaveBeenCalled();
+  expect(mocks.updateProfile).toHaveBeenCalledWith(expect.objectContaining({data:{isEmailVerified:true}}));
  });
  it('rejects invalid/expired sessions',async()=>{
   mocks.setSession.mockResolvedValue({data:{session:null},error:{message:'expired'}});

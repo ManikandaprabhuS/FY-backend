@@ -10,12 +10,15 @@ import {env} from "./config/env";
 import {logger} from "./config/logger";
 import {prisma} from "./prisma/client";
 import {createServer} from "node:http";
+import {startDeliveryWorker} from './services/delivery/outbox-worker';
+let stopDeliveryWorker:(()=>void)|undefined;
 const server=createServer(app);
 void seedOffers().then(()=>seedHomepageBanner()).then(()=>{
  server.listen(env.PORT,()=>{
   logger.info({port:env.PORT,environment:env.NODE_ENV},"FrameYaad API started");
   console.log("Application is running on",env.PORT);
   startContactMediaCleanup();startReviewWorker();startBannerImageCleanup();startCustomerNotificationCleanup();startPhotoMaintenance();
+  stopDeliveryWorker=startDeliveryWorker();
  });
 }).catch((error:unknown)=>{
  logger.error({err:error},"Offer initialization failed; API was not started");
@@ -23,6 +26,7 @@ void seedOffers().then(()=>seedHomepageBanner()).then(()=>{
 });
 const shutdown=(signal:NodeJS.Signals):void=>{
  logger.info({signal},"Shutting down FrameYaad API");
+ stopDeliveryWorker?.();
  server.close(()=>{void prisma.$disconnect().finally(()=>process.exit(0));});
  setTimeout(()=>process.exit(1),10000).unref();
 };

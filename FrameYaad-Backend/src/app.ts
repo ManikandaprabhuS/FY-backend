@@ -7,6 +7,8 @@ import pinoHttp from "pino-http";
 
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import { notificationLogLevel } from './modules/notifications/notification-logging';
+import {resendWebhook} from './services/delivery/resend-webhook';
 import { errorHandler } from "./middleware/error.middleware";
 import { notFound } from "./middleware/not-found.middleware";
 import { requestId } from "./middleware/request-id.middleware";
@@ -18,7 +20,7 @@ export const createApp = () => {
 
   app.disable("x-powered-by");
   app.use(requestId);
-  app.use(pinoHttp({ logger }));
+  app.use(pinoHttp({ logger, customLogLevel: (request, response, error) => notificationLogLevel(request.method, request.url, response.statusCode, error) }));
   app.use(helmet());
   const publicCatalogPath = `${env.API_PREFIX}/products/public`;
   // Compress public catalog JSON only; never compress tokens, OTPs or account data.
@@ -36,6 +38,7 @@ export const createApp = () => {
   }));
   app.use(cors({ origin: process.env.FRONTEND_URL,
   credentials: true,}));
+  app.post(`${env.API_PREFIX}/webhooks/resend`,express.raw({type:'application/json',limit:'256kb'}),resendWebhook);
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(requireTrustedOrigin);

@@ -40,6 +40,45 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum DeliveryJobState {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model DeliveryJob {
+  id String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sequence BigInt @unique @default(autoincrement())
+  idempotencyKey String @unique @db.VarChar(240)
+  kind String @db.VarChar(40)
+  payload Json
+  state DeliveryJobState @default(PENDING)
+  attempts Int @default(0)
+  availableAt DateTime @default(now()) @db.Timestamptz(3)
+  lockedAt DateTime? @db.Timestamptz(3)
+  lockToken String?
+  firstAttemptAt DateTime? @db.Timestamptz(3)
+  providerMessageId String? @unique
+  lastError String? @db.VarChar(160)
+  deliveryEvent String? @db.VarChar(40)
+  deliveredAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+  @@index([state, availableAt, sequence], map: "delivery_jobs_state_availableat_sequence_idx")
+  @@map("delivery_jobs")
+}
+
+model EmailDeliveryEvent {
+  id String @id
+  providerMessageId String
+  type String @db.VarChar(40)
+  occurredAt DateTime @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([providerMessageId], map: "email_delivery_events_providermessageid_idx")
+  @@map("email_delivery_events")
+}
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")

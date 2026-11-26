@@ -1,4 +1,4 @@
-import {parseStatusHistory} from "./order-status-flow";
+
 import {randomUUID} from "node:crypto";
 import {UserRole,Prisma} from "@prisma/client";
 import {prisma} from "../../prisma/client";
@@ -6,8 +6,10 @@ import {ApiError} from "../../utils/api-error";
 import {orderViewSelect} from "./orders.select";
 import {z} from "zod";
 import {updateRefundSchema} from "./orders.schemas";
-import {notifyCustomer} from "../customer-notifications/customer-notifications.service";
-import {logger} from "../../config/logger";
+
+import {wakeDeliveryWorker} from "../../services/delivery/outbox-signal";
+import {notifyCustomer} from '../customer-notifications/customer-notifications.service';
+import {parseStatusHistory} from './order-status-flow';
 export const refundMessage=(cancelledBy:string|null,status:string|null)=>status==="COMPLETED"?"Your refund is completed. Please check your respective bank account.":status==="INITIATED"?(cancelledBy==="customer"?"Your cancellation is confirmed and your refund has been initiated. You will be getting your money back.":"Your order was cancelled by FrameYaad and your refund has been initiated. You will be getting your money back."):(cancelledBy==="admin"?"Your order was cancelled by FrameYaad.":"Your cancellation is confirmed.");
 export async function updateRefund(id:string,input:z.infer<typeof updateRefundSchema>,actor:{id:string;role:UserRole}){
  if(actor.role!==UserRole.ADMIN&&actor.role!==UserRole.EMPLOYEE)throw new ApiError(403,"You do not have permission for this action","FORBIDDEN");
@@ -30,11 +32,10 @@ export async function updateRefund(id:string,input:z.infer<typeof updateRefundSc
   return tx.order.findUniqueOrThrow({where:{id},select:orderViewSelect});
  });
 }
-export function enqueueRefundNotification(order:{id:string;userId:string;orderNumber:string;cancelledBy:string|null;refundStatus:string|null;refundHistory:unknown;statusHistory?:unknown}){
- const history=Array.isArray(order.refundHistory)?order.refundHistory:[],event=history.at(-1) as {eventId?:string}|undefined;
+type RefundNotificationOrder={id:string;userId:string;orderNumber:string;cancelledBy:string|null;refundStatus:string|null;refundHistory:unknown;statusHistory?:unknown};
+export async function processRefundNotification(order:RefundNotificationOrder){
+ const history=Array.isArray(order.refundHistory)?order.refundHistory:[],event=history.at(-1) as {eventId?:string;changedAt?:string}|undefined;
  if(!event?.eventId)return;
- const eventId=event.eventId;
- const run=(attempt:number)=>setImmediate(()=>{void notifyCustomer(order.userId,"REFUND_"+order.refundStatus,{eventId,orderId:order.id,orderNumber:order.orderNumber,message:refundMessage(order.cancelledBy??(parseStatusHistory(order.statusHistory).find(e=>e.status==="CANCELLED")?.changedBy.role==="CUSTOMER"?"customer":"admin"),order.refundStatus),title:"Refund "+order.refundStatus?.toLowerCase()}).catch(()=>{
-  if(attempt<2)setTimeout(()=>run(attempt+1),1000*(attempt+1)).unref();else logger.warn({orderId:order.id},"Refund notification could not be delivered");
- });});run(0);
+ await notifyCustomer(order.userId,'REFUND_'+order.refundStatus,{eventId:event.eventId,orderId:order.id,orderNumber:order.orderNumber,message:refundMessage(order.cancelledBy??(parseStatusHistory(order.statusHistory).find(e=>e.status==='CANCELLED')?.changedBy.role==='CUSTOMER'?'customer':'admin'),order.refundStatus),title:'Refund '+order.refundStatus?.toLowerCase(),...(event.changedAt?{createdAt:new Date(event.changedAt)}:{})});
 }
+export function enqueueRefundNotification(order:RefundNotificationOrder){void order;wakeDeliveryWorker();}

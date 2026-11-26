@@ -162,7 +162,7 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
       select: orderViewSelect,
     });
     if (photo) await transaction.orderPhoto.update({ where: { id: photo.id }, data: { orderId: order.id, status: "ATTACHED", attachedAt: placedAt, maxAllowedMB:photo.maxAllowedMB } });
-    // Notifications are queued only after this transaction commits.
+    // The database trigger persists delivery intent here; processing starts after commit.
     if (cart) {
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
       await transaction.cart.update({ where: { id: cart.id }, data: { totalPrice: 0 } });

@@ -8,6 +8,7 @@ export const logger = pino({
     paths: [
       "req.headers.authorization",
       "req.headers.cookie",
+      'req.headers["svix-signature"]',
       "res.headers.set-cookie",
       "password",
       "token",

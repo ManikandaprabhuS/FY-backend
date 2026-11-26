@@ -2,6 +2,7 @@ import { Router } from "express";
 import { UserRole } from "@prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { createPasswordRecoveryRouter } from "./password-recovery.routes";
+import { notificationRealtimeSession } from '../notifications/notification-realtime.controller';
 
 import { authenticate, adminOnly } from "../../middleware/auth.middleware";
 import { staffLoginRateLimit } from "../../middleware/staff-login-rate-limit.middleware";
@@ -28,6 +29,7 @@ authRouter.post("/staff/login", staffLoginRateLimit, validateBody(loginSchema), 
 authRouter.post("/refresh", controller.refresh);
 authRouter.post("/logout", controller.logout);
 authRouter.get("/me", authenticate, controller.me);
+authRouter.get('/notification-realtime-session', authenticate, notificationRealtimeSession);
 authRouter.patch("/profile", authenticate, validateBody(updateOwnProfileSchema), controller.updateProfile);
 authRouter.use("/customer", createPasswordRecoveryRouter(UserRole.CUSTOMER));
 

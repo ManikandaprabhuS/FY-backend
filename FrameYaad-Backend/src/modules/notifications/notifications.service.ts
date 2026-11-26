@@ -22,11 +22,18 @@ const notificationSelect = {
 const audienceWhere = (userId: string, role: UserRole): Prisma.NotificationWhereInput =>
   role === UserRole.CUSTOMER ? { userId } : { userId: null };
 
-const withReviewLinks = async <T extends { id: string; title: string }>(notifications: T[], role: UserRole): Promise<Array<T & { actionUrl?: string }>> => {
+const withReviewLinks = async <T extends { id: string; title: string; message:string }>(notifications: T[], role: UserRole): Promise<Array<T & { actionUrl?: string }>> => {
   const ids = role === UserRole.CUSTOMER ? [] : notifications.filter(item => item.title === "New product review").map(item => item.id);
   const reviews = ids.length ? await prisma.review.findMany({ where: { notificationId: { in: ids } }, select: { id: true, notificationId: true } }) : [];
   const links = new Map(reviews.map(review => [review.notificationId, "/admin/reviews?reviewId=" + review.id]));
-  return notifications.map(item => ({ ...item, ...(ids.includes(item.id) ? { actionUrl: links.get(item.id) ?? "/admin/reviews" } : {}) }));
+  const customerEmails=role===UserRole.CUSTOMER?[]:notifications.filter(item=>item.title==='New customer account').flatMap(item=>{const email=item.message.match(/\(([^()\s]+@[^()\s]+)\) created a customer account\.$/)?.[1];return email?[email]:[];});
+  const customers=customerEmails.length?await prisma.user.findMany({where:{role:UserRole.CUSTOMER,email:{in:customerEmails}},select:{id:true,email:true}}):[];
+  return notifications.map(item => {
+    const appointmentId=role!==UserRole.CUSTOMER&&item.title==='New appointment request'?item.message.match(/^Appointment ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):/i)?.[1]:undefined;
+    const email=item.title==='New customer account'?item.message.match(/\(([^()\s]+@[^()\s]+)\) created a customer account\.$/)?.[1]:undefined;
+    const customer=customers.find(value=>value.email===email);
+    return { ...item, ...(appointmentId?{actionUrl:'/admin/appointments/'+appointmentId}:customer?{actionUrl:'/admin/customers/'+customer.id}:ids.includes(item.id) ? { actionUrl: links.get(item.id) ?? "/admin/reviews" } : {}) };
+  });
 };
 
 const withOrderLinks=async<T extends {id:string;title:string;message:string}>(notifications:T[],userId:string,role:UserRole)=>{

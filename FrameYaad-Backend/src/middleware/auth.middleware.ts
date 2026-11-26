@@ -6,6 +6,7 @@ import { prisma } from "../prisma/client";
 import { ApiError } from "../utils/api-error";
 import { getAccessToken } from "../utils/auth-cookies";
 import { userViewSelect } from "../utils/user-view";
+import {wakeDeliveryWorker} from '../services/delivery/outbox-signal';
 
 const resolveAuthentication = async (request: Parameters<RequestHandler>[0]): Promise<boolean> => {
   const accessToken = getAccessToken(request);
@@ -36,6 +37,7 @@ const resolveAuthentication = async (request: Parameters<RequestHandler>[0]): Pr
       },
       select: userViewSelect,
     });
+    if(user.role===UserRole.CUSTOMER&&user.isEmailVerified)wakeDeliveryWorker();
   }
   if (!user.isActive) {
     throw new ApiError(403, "Account is deactivated", "ACCOUNT_DEACTIVATED");

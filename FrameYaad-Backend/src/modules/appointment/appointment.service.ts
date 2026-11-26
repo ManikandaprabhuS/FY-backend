@@ -6,10 +6,7 @@ import {
 
 import { logger } from "../../config/logger";
 import { prisma } from "../../prisma/client";
-import {
-  sendAppointmentCreatedEmails,
-  sendAppointmentStatusEmail,
-} from "../../services/appointment-email/appointment-email.service";
+import {wakeDeliveryWorker} from '../../services/delivery/outbox-signal';
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import {
@@ -45,10 +42,6 @@ const allowedTransitions: Record<AppointmentStatus, AppointmentStatus[]> = {
   COMPLETED: [],
 };
 
-const emailStatus = (sent: boolean): AppointmentEmailStatus => sent
-  ? AppointmentEmailStatus.SENT
-  : AppointmentEmailStatus.FAILED;
-
 export const createAppointment = async (input: CreateAppointmentInput) => {
   const appointment = await prisma.appointment.create({
     data: {
@@ -67,14 +60,8 @@ export const createAppointment = async (input: CreateAppointmentInput) => {
   });
   logger.info({ appointmentId: appointment.id }, "Appointment created");
 
-  const sent = await sendAppointmentCreatedEmails(appointment);
-  const updated = await prisma.appointment.update({
-    where: { id: appointment.id },
-    data: { emailStatus: emailStatus(sent) },
-    select: appointmentSelect,
-  });
-  if (!sent) logger.warn({ appointmentId: appointment.id }, "Appointment saved but one or more emails failed");
-  return updated;
+  wakeDeliveryWorker();
+  return appointment;
 };
 
 const listWhere = (query: ReturnType<typeof appointmentListQuerySchema.parse>): Prisma.AppointmentWhereInput => {
@@ -131,7 +118,7 @@ export const updateAppointmentStatus = async (rawId: unknown, input: UpdateAppoi
   }
 
   const next = await prisma.appointment.update({
-    where: { id: current.id },
+    where: { id: current.id, status:current.status, bookingDate:current.bookingDate, updatedAt:current.updatedAt },
     data: {
       status: input.status,
       ...(input.status === AppointmentStatus.RESCHEDULED ? {
@@ -146,16 +133,12 @@ export const updateAppointmentStatus = async (rawId: unknown, input: UpdateAppoi
       }),
     },
     select: appointmentSelect,
+  }).catch((error:unknown)=>{
+    if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2025')throw new ApiError(409,'This appointment changed. Refresh and try again.','APPOINTMENT_CONFLICT');
+    throw error;
   });
   logger.info({ appointmentId: next.id, from: current.status, to: next.status }, "Appointment status updated");
 
-  const sent = await sendAppointmentStatusEmail(next, current.bookingDate);
-  if (sent === null) return next;
-  const updated = await prisma.appointment.update({
-    where: { id: next.id },
-    data: { emailStatus: emailStatus(sent) },
-    select: appointmentSelect,
-  });
-  if (!sent) logger.warn({ appointmentId: next.id, status: next.status }, "Appointment status saved but email failed");
-  return updated;
+  wakeDeliveryWorker();
+  return next;
 };

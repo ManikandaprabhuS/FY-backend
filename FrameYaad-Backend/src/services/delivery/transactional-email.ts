@@ -1,0 +1,15 @@
+import { env } from '../../config/env';
+import type { EmailMessage } from '../email.service';
+
+export const escapeEmailText=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+const money=(value:unknown)=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR'}).format(Number(value??0));
+export const emailLayout=(title:string,body:string)=>`<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:620px;margin:auto"><div style="border:1px solid #ddd;border-radius:14px;overflow:hidden"><div style="background:#000;color:white;padding:20px 24px;font-size:22px;font-weight:bold">FrameYaad</div><div style="padding:24px"><h1 style="font-size:24px">${escapeEmailText(title)}</h1>${body}<p>Warm regards,<br><strong>The FrameYaad Team</strong></p></div></div></div>`;
+export function welcomeEmail(customer:{name:string;email:string}):EmailMessage{return {to:customer.email,subject:'Welcome to FrameYaad',html:emailLayout('Welcome to FrameYaad',`<p>Hello ${escapeEmailText(customer.name)},</p><p>Your email is verified. Welcome to FrameYaad.</p><p><a href="${escapeEmailText(env.FRONTEND_URL)}">Explore FrameYaad</a></p>`) };}
+type EmailOrder={id:string;orderNumber:string;status:string;createdAt:Date;totalPrice:unknown;subtotal?:unknown;discountAmount?:unknown;couponTitle?:string|null;user:{name:string;email:string};items:Array<{snapshotProductName:string|null;quantity:number;price:unknown;subtotal:unknown}>};
+export function orderEmail(order:EmailOrder,status:string,occurredAt:Date):EmailMessage {
+ const titles:Record<string,string>={PLACED:'Order placed',CANCELLED:'Order cancelled',SHIPPED:'Order shipped',DELIVERED:'Order delivered'};
+ const title=titles[status];if(!title)throw new Error('Unsupported order email event');
+ const lines=order.items.map(item=>`<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeEmailText(item.snapshotProductName??'Frame')} &times; ${item.quantity}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${escapeEmailText(money(item.subtotal))}</td></tr>`).join('');
+ const when=new Intl.DateTimeFormat('en-IN',{dateStyle:'long',timeStyle:'short',timeZone:'Asia/Kolkata'}).format(occurredAt);
+ return {to:order.user.email,subject:`${title}: ${order.orderNumber}`,html:emailLayout(title,`<p>Hello ${escapeEmailText(order.user.name)},</p><p>Your order <strong>${escapeEmailText(order.orderNumber)}</strong> is ${escapeEmailText(status.toLowerCase())}.</p><p>${escapeEmailText(when)}</p><table role="presentation" style="width:100%;border-collapse:collapse">${lines}</table><p>Subtotal: ${escapeEmailText(money(order.subtotal??order.totalPrice))}<br>Discount: ${escapeEmailText(money(order.discountAmount))}${order.couponTitle?` (${escapeEmailText(order.couponTitle)})`:''}<br><strong>Total: ${escapeEmailText(money(order.totalPrice))}</strong></p><p><a href="${escapeEmailText(new URL(`/orders/${encodeURIComponent(order.id)}`,env.FRONTEND_URL).href)}">View your order</a></p>`) };
+}

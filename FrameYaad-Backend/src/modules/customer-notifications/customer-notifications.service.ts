@@ -9,7 +9,7 @@ export const notifyCustomer=async(userId:string,event:string,data:{eventId:strin
  const placed=event==="ORDER_PLACED";
  const title=placed?"Order placed":cancelled?"Order cancelled":"Order status updated";
  const message=placed?"Your order "+data.orderNumber+" has been placed.":"Your order "+data.orderNumber+" is now "+data.status+".";
- // Future email-channel integration belongs here; this function sends no email.
+ // In-app channel only; the transactional delivery outbox owns email dispatch.
  await prisma.customerNotification.upsert({where:{id:data.eventId},create:{id:data.eventId,userId,type:cancelled?"ORDER_CANCELLED":event,title:data.title??title,message:data.message??message,orderId:data.orderId,createdAt:data.createdAt??new Date()},update:{}});
 };
 export const customerUnreadCount=async(userId:string)=>{
