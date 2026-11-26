@@ -9,6 +9,7 @@ import { validateBody } from "../../middleware/validate.middleware";
 import * as controller from "./auth.controller";
 import {
   changePasswordSchema,
+  confirmationSessionSchema,
   adminRegistrationSchema,
   customerRegistrationSchema,
   loginSchema,
@@ -18,6 +19,7 @@ import {
 export const authRouter = Router();
 
 authRouter.post("/customer/register", validateBody(customerRegistrationSchema), controller.registerCustomer);
+authRouter.post("/customer/confirmation", validateBody(confirmationSessionSchema), controller.confirmCustomerSession);
 authRouter.post("/admin/register", authenticate, adminOnly, staffLoginRateLimit, validateBody(adminRegistrationSchema), controller.registerAdmin);
 authRouter.post("/customer/login", validateBody(loginSchema), controller.loginCustomer);
 authRouter.post("/admin/login", staffLoginRateLimit, validateBody(loginSchema), controller.loginAdmin);

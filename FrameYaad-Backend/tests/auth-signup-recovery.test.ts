@@ -17,11 +17,12 @@ vi.mock("../src/config/supabase", () => ({
   } },
 }));
 vi.mock("../src/prisma/client", () => ({ prisma: {
-  user: { findFirst: mocks.findUser }, $transaction: mocks.transaction,
+  user: { findFirst: mocks.findUser, findUnique:mocks.findUser }, $transaction: mocks.transaction,
 } }));
 vi.mock("../src/modules/notifications/notification-events.service", () => ({ createCustomerRegistrationNotifications: mocks.notify }));
 
-import { registerCustomer } from "../src/modules/auth/auth.service";
+import { registerCustomer,confirmCustomerSession } from "../src/modules/auth/auth.service";
+import {env} from '../src/config/env';
 
 const input = { name: "New Customer", email: "new@example.com", password: "Password123!", gender: "FEMALE" as const };
 const user = { id: "11111111-1111-4111-8111-111111111111", email: input.email, identities: [{ id: "identity-1" }] };
@@ -39,6 +40,10 @@ beforeEach(() => {
 });
 
 describe("signup duplicate detection", () => {
+  it('uses the existing frontend environment for the confirmation callback without changing metadata',async()=>{
+    await registerCustomer(input);
+    expect(mocks.signUp).toHaveBeenCalledWith({email:input.email,password:input.password,options:{emailRedirectTo:new URL('/auth/callback',env.FRONTEND_URL).href,data:{name:input.name,gender:input.gender}}});
+  });
   it("rejects an exact email match without calling signup", async () => {
     mocks.findUser.mockResolvedValue({ id: user.id });
     await expect(registerCustomer(input)).rejects.toMatchObject({ statusCode: 409, code: "ACCOUNT_ALREADY_EXISTS" });
@@ -85,5 +90,30 @@ describe("signup duplicate detection", () => {
     mocks.signUp.mockResolvedValue({ data: {}, error: { status: 422, code: "weak_password" } });
     await expect(registerCustomer(input)).rejects.toMatchObject({ code: "WEAK_PASSWORD" });
   });
+});
+
+describe('confirmation session bridge',()=>{
+ it('accepts only a verified active customer and never creates another profile',async()=>{
+  const session={access_token:'verified-access',refresh_token:'verified-refresh',expires_in:3600};
+  mocks.setSession.mockResolvedValue({data:{session},error:null});
+  mocks.getUser.mockResolvedValue({data:{user:{...user,email_confirmed_at:'2026-11-26T00:00:00Z'}},error:null});
+  mocks.findUser.mockResolvedValue({...user,role:'CUSTOMER',isActive:true});
+  expect((await confirmCustomerSession({access_token:'a',refresh_token:'r'})).session).toEqual(session);
+  expect(mocks.createUser).not.toHaveBeenCalled();expect(mocks.signUp).not.toHaveBeenCalled();
+ });
+ it('rejects invalid/expired sessions',async()=>{
+  mocks.setSession.mockResolvedValue({data:{session:null},error:{message:'expired'}});
+  await expect(confirmCustomerSession({access_token:'a',refresh_token:'r'})).rejects.toMatchObject({statusCode:401});
+ });
+ it('rejects an unconfirmed email even if tokens are supplied',async()=>{
+  mocks.setSession.mockResolvedValue({data:{session:{access_token:'a'}},error:null});
+  await expect(confirmCustomerSession({access_token:'a',refresh_token:'r'})).rejects.toMatchObject({code:'EMAIL_NOT_VERIFIED'});
+ });
+ it.each([{role:'ADMIN',isActive:true},{role:'CUSTOMER',isActive:false}])('does not bypass account restrictions: %o',async fields=>{
+  mocks.setSession.mockResolvedValue({data:{session:{access_token:'a'}},error:null});
+  mocks.getUser.mockResolvedValue({data:{user:{...user,email_confirmed_at:'2026-11-26T00:00:00Z'}},error:null});
+  mocks.findUser.mockResolvedValue({...user,...fields});
+  await expect(confirmCustomerSession({access_token:'a',refresh_token:'r'})).rejects.toMatchObject({statusCode:403});
+ });
 });
 

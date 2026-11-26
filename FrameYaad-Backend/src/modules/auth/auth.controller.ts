@@ -62,6 +62,13 @@ const loginFor = (roles: UserRole | readonly UserRole[]): RequestHandler => asyn
 };
 
 export const loginCustomer = loginFor(UserRole.CUSTOMER);
+export const confirmCustomerSession: RequestHandler = async (request,response) => {
+  const result=await authService.confirmCustomerSession(request.body as {access_token:string;refresh_token:string});
+  if(!result.session)throw new ApiError(401,"Email confirmation could not be completed","INVALID_CONFIRMATION_LINK");
+  setAuthCookies(response,result.session);
+  response.setHeader('Cache-Control','no-store');
+  response.json({success:true,data:{user:result.user,accessToken:result.session.access_token,authentication:'httpOnlyCookie',expiresInSeconds:result.session.expires_in}});
+};
 export const loginAdmin = loginFor(UserRole.ADMIN);
 export const loginEmployee = loginFor(UserRole.EMPLOYEE);
 export const loginStaff = loginFor([UserRole.ADMIN, UserRole.EMPLOYEE]);

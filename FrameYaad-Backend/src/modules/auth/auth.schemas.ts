@@ -39,6 +39,8 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(72),
 }).strict();
 
+export const confirmationSessionSchema=z.object({access_token:z.string().min(1).max(16384),refresh_token:z.string().min(1).max(4096)}).strict();
+
 export const forgotPasswordSchema = z.object({ email: emailSchema }).strict();
 
 export const verifyResetOtpSchema = z.object({

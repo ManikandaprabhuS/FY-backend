@@ -2,6 +2,7 @@ import { UserRole } from "@prisma/client";
 import type { Session } from "@supabase/supabase-js";
 
 import { logger } from "../../config/logger";
+import { env } from "../../config/env";
 import { createUserSupabaseClient, supabaseAdmin } from "../../config/supabase";
 import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
@@ -76,7 +77,7 @@ export const registerCustomer = async (input: CustomerRegistrationInput): Promis
   const { data, error } = await client.auth.signUp({
     email: input.email,
     password: input.password,
-    options: { data: { name: input.name, gender: input.gender } },
+    options: { emailRedirectTo: new URL('/auth/callback', env.FRONTEND_URL).href, data: { name: input.name, gender: input.gender } },
   });
 
   if (error) {
@@ -217,6 +218,18 @@ export const refreshSession = async (refreshToken: string): Promise<Authenticati
     throw new ApiError(403, "Account is unavailable", "ACCOUNT_UNAVAILABLE");
   }
   return { session: data.session, user };
+};
+
+// Complete the existing implicit signup flow without creating another profile or email.
+export const confirmCustomerSession = async (tokens: {access_token:string;refresh_token:string}): Promise<AuthenticationResult> => {
+  const client=createUserSupabaseClient();
+  const {data,error}=await client.auth.setSession(tokens);
+  if(error||!data.session)throw new ApiError(401,"The confirmation link is invalid or expired. Please sign in or request a new confirmation email.","INVALID_CONFIRMATION_LINK");
+  const verified=await supabaseAdmin.auth.getUser(data.session.access_token);
+  if(verified.error||!verified.data.user?.email_confirmed_at)throw new ApiError(401,"Email confirmation could not be verified","EMAIL_NOT_VERIFIED");
+  const user=await prisma.user.findUnique({where:{id:verified.data.user.id},select:userViewSelect});
+  if(!user||user.role!==UserRole.CUSTOMER||!user.isActive)throw new ApiError(403,"This customer account is unavailable","ACCOUNT_UNAVAILABLE");
+  return {session:data.session,user};
 };
 
 export const logout = async (accessToken?: string): Promise<void> => {
