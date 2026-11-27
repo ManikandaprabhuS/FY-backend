@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { beforeEach, expect, it, vi } from "vitest";
+vi.mock('../src/modules/order-photos/photo-context',()=>({resolvePhotoContext:vi.fn().mockResolvedValue({allowCustomerPhoto:true,maxBytes:4*1024*1024,maxAllowedMB:4,policyVersion:'snapshot-fixture'})}));
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), uniqueOrder: vi.fn(), color: vi.fn() }));
 vi.mock("../src/prisma/client", () => ({ prisma: { $transaction: mocks.transaction, order: { findUnique: mocks.uniqueOrder }, frameColor: { findFirst: mocks.color } } }));
 vi.mock("../src/modules/notifications/notification-events.service", () => ({ createOrderPlacedNotifications: vi.fn() }));

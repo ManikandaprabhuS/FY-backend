@@ -84,7 +84,7 @@ export const updateProduct = async (id: string, input: UpdateProductInput, role:
   const materialId = input.materialId ?? existing.materialId;
   const variantId = input.variantId ?? existing.variantId;
   if ((input.materialId || input.variantId) && variantId) await assertActiveReferences(materialId, variantId);
-  return prisma.product.update({ where: { id }, data: input, select: productViewSelect });
+  return prisma.product.update({ where: { id }, data: {...input,maxPhotoMb:(input.allowCustomerPhoto??existing.allowCustomerPhoto)===false?null:input.maxPhotoMb}, select: productViewSelect });
 };
 
 export const deleteProduct = async (id: string, role: UserRole): Promise<void> => {
@@ -179,6 +179,7 @@ export const createAdminProductPreview = async (
       data: {
         productIdentifier,
         productName: input.name,
+        allowCustomerPhoto:input.allowCustomerPhoto??true,maxPhotoMb:input.allowCustomerPhoto===false?null:input.maxPhotoMb??4,isFrameyaadArt:input.isFrameyaadArt??false,
         materialId: material.id,
         createdById: actorId,
         images: input.images.length > 0 ? { create: input.images.map((image, index) => ({ imageUrl: image.imageUrl, color: image.color ?? null, isPrimary: index === input.images.findIndex(candidate => !candidate.color) })) } : undefined,
@@ -239,6 +240,7 @@ export const updateAdminProductPreview = async (
       where: { id },
       data: {
         productName: input.name,
+        allowCustomerPhoto:input.allowCustomerPhoto,maxPhotoMb:(input.allowCustomerPhoto??existing.allowCustomerPhoto)===false?null:input.maxPhotoMb,isFrameyaadArt:input.isFrameyaadArt,
         images: input.images === undefined
           ? undefined
           : {

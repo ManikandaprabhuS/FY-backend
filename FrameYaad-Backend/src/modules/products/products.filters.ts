@@ -2,7 +2,8 @@ import { UserRole, type Prisma } from "@prisma/client";
 import type { z } from "zod";
 import type { productListQuerySchema } from "./products.schemas";
 
-export const buildProductWhere = ({ search, materialId, variantId, isActive }: z.infer<typeof productListQuerySchema>, role: UserRole): Prisma.ProductWhereInput => ({
+export const buildProductWhere = ({ search, materialId, variantId, isActive,isFrameyaadArt }: z.infer<typeof productListQuerySchema>, role: UserRole): Prisma.ProductWhereInput => ({
+  ...(isFrameyaadArt===undefined?{}:{isFrameyaadArt}),
   ...(role === UserRole.CUSTOMER ? { material: { isActive: true }, variant: { isActive: true } } : {}),
   ...(materialId ? { materialId } : {}),
   ...(variantId ? { variantId } : {}),

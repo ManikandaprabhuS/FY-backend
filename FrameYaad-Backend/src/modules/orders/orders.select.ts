@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { resolveLegacyColor } from "../colors/colors.values";
 
 export const orderViewSelect = {
+  customerPhotoAllowed:true,
   photoId: true, photoFileName: true, photoSizeBytes: true,
   customerPhoto:{select:{status:true,deletedAt:true,deletedByName:true}},
   id: true,

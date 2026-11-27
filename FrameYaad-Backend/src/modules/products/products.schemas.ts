@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { plainText } from "../../utils/input-schemas";
 import {photoLimitValidation} from "../../utils/photo-limits";
+import {productPolicyFields,validateProductPolicy,normalizeProductPolicy} from './product-photo-policy';
 const maxPhotoSizeSchema = z.preprocess(value=>value===""?null:value,z.number().nullable().optional().superRefine((value,context)=>{const issue=photoLimitValidation(value);if(issue)context.addIssue({code:"custom",message:issue});}));
 const priceSchema = z.number().positive("Price must be greater than zero").max(9_999_999_999.99);
 const stockSchema = z.number().int().nonnegative().max(2_147_483_647);
@@ -21,17 +22,19 @@ const gallerySchema = z.array(productImageSchema).min(1, "At least one product i
   .refine(images => images.some(image => !image.color), "At least one default product image is required");
 
 const productFields = {
+  ...productPolicyFields,
   materialId: z.string().uuid(),
   variantId: z.string().uuid(),
   productIdentifier: z.string().trim().min(2).max(100).regex(/^[A-Za-z0-9_-]+$/),
   productName: plainText(2, 160),
 };
 
-export const createProductSchema = z.object({ ...productFields, images: gallerySchema }).strict();
+export const createProductSchema = z.object({ ...productFields, images: gallerySchema }).strict().superRefine(validateProductPolicy).transform(normalizeProductPolicy);
 
 // Compatibility input for the existing admin Add Product screen. It is mapped
 // only to fields already present in the current schema.
 export const createAdminProductPreviewSchema = z.object({
+  ...productPolicyFields,
   name: plainText(2, 160),
   description: z.string().trim().min(1, 'Description is required').max(2_000),
   brandName: plainText(2, 120),
@@ -50,7 +53,7 @@ export const createAdminProductPreviewSchema = z.object({
     offerPrice: priceSchema.optional().nullable(),
     stockQuantity: stockSchema,
   })).min(1).max(50),
-}).strict();
+}).strict().superRefine(validateProductPolicy).transform(normalizeProductPolicy);
 
 const adminVariantFields = {
   maxPhotoSizeMB: maxPhotoSizeSchema,
@@ -65,6 +68,7 @@ const adminVariantFields = {
 };
 
 export const updateAdminProductPreviewSchema = z.object({
+  ...productPolicyFields,
   name: plainText(2, 160).optional(),
   description: z.string().trim().min(1, 'Description is required').max(2_000).optional(),
   brandName: plainText(2, 120).optional(),
@@ -73,7 +77,7 @@ export const updateAdminProductPreviewSchema = z.object({
   isActive: z.boolean().optional(),
   images: gallerySchema.optional(),
   variants: z.array(z.object(adminVariantFields)).max(50).optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, {
+}).strict().superRefine(validateProductPolicy).transform(normalizeProductPolicy).refine((value) => Object.keys(value).length > 0, {
   message: "At least one product field is required",
 });
 
@@ -95,15 +99,17 @@ export const createAdminVariantSchema = z.object({
 }).strict();
 
 export const updateProductSchema = z.object({
+  ...productPolicyFields,
   materialId: productFields.materialId.optional(),
   variantId: productFields.variantId.optional(),
   productIdentifier: productFields.productIdentifier.optional(),
   productName: productFields.productName.optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, {
+}).strict().superRefine(validateProductPolicy).transform(normalizeProductPolicy).refine((value) => Object.keys(value).length > 0, {
   message: "At least one product field is required",
 });
 
 export const productListQuerySchema = z.object({
+  isFrameyaadArt:z.enum(['true','false']).transform(value=>value==='true').optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(160).optional(),

@@ -9,6 +9,7 @@ const stringList = z.preprocess(value => {
   try { return JSON.parse(value) as unknown; } catch { return value; }
 }, z.array(z.string().trim().min(1).max(120)).max(30).default([]));
 export const publicCatalogQuerySchema = z.object({
+  catalog:z.enum(['frames','arts','all']).optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(160).optional(),
@@ -26,6 +27,7 @@ export interface CatalogFacets { materials: Facet[]; sizes: Facet[]; onSale: num
 
 export const listPublicCatalog = async (rawQuery: unknown) => {
   const query = publicCatalogQuerySchema.parse(rawQuery);
+  const catalog=query.catalog??(query.search?'all':'frames');
   const filters: Prisma.Sql[] = [Prisma.sql`TRUE`];
   if (query.search) filters.push(Prisma.sql`("productName" ILIKE ${`%${query.search}%`} OR "productIdentifier" ILIKE ${`%${query.search}%`})`);
   if (query.materialId) filters.push(Prisma.sql`"materialId" = ${query.materialId}`);
@@ -53,6 +55,7 @@ export const listPublicCatalog = async (rawQuery: unknown) => {
       JOIN public."Material" m ON m.id = p."materialId" AND m."isActive" = true
       JOIN public."ProductVariant" primary_variant ON primary_variant.id = p."variantId" AND primary_variant."isActive" = true
       LEFT JOIN public."ProductVariant" v ON v."productId" = p.id AND v."isActive" = true
+      WHERE ${catalog==='all'?Prisma.sql`TRUE`:Prisma.sql`p.is_frameyaad_art=${catalog==='arts'}`}
       GROUP BY p.id, m.material
     ), filtered AS (SELECT * FROM catalog WHERE ${Prisma.join(filters, " AND ")}),
     paged AS (SELECT id FROM filtered ORDER BY ${sorting[query.sort]} LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit})

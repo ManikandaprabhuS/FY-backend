@@ -1,5 +1,6 @@
 import {revenueSummary} from "./revenue";
 import {changeOrderStock} from './order-stock';
+import {resolvePhotoContext} from '../order-photos/photo-context';
 import {randomUUID, createHash} from "node:crypto";
 import {enqueuePhotoAttachment, reserveOrderPhoto} from "../order-photos/order-photos.service";
 import {createAddressSchema} from "../addresses/addresses.schemas";
@@ -140,13 +141,15 @@ const checkoutAttempt = (userId: string, input: CheckoutInput) =>
 
     if(!totalPrice.isFinite()||totalPrice.lte(0))throw new ApiError(400,"Order total must be greater than zero.","INVALID_ORDER_TOTAL");
     const offer = await validateOffer(transaction,userId,totalPrice,input.couponCode,input.couponVersion);
-    const photoVariants=input.photoId?await transaction.variant.findMany({where:{id:{in:[...new Set(orderItems.flatMap(item=>item.snapshotVariantId?[item.snapshotVariantId]:[]))]}},select:{maxPhotoSizeMB:true}}):[];
-    const photo = await reserveOrderPhoto(transaction, userId, input.photoId, photoVariants);
+    const photoPolicy=await resolvePhotoContext(transaction,userId,orderItems.map(item=>({productIdentifier:item.productIdentifier!,variantId:item.snapshotVariantId!,quantity:item.quantity})));
+    if(input.photoId&&!photoPolicy.allowCustomerPhoto)throw new ApiError(400,'These products do not allow a customer photo. Please review checkout and place the order without a photo.','PHOTO_NOT_ALLOWED');
+    const photo = await reserveOrderPhoto(transaction,userId,input.photoId,[{maxPhotoSizeMB:photoPolicy.maxAllowedMB}]);
     const placedAt=new Date();
     await changeOrderStock(transaction, orderItems);
     const order = await transaction.order.create({
       data: {
         userId,
+        customerPhotoAllowed:photoPolicy.allowCustomerPhoto,
         createdAt:placedAt, paymentMethod:input.paymentMethod, checkoutKey:input.checkoutKey, checkoutHash,
         photoId: photo?.id, photoFileName: photo?.fileName, photoSizeBytes: photo?.sizeBytes,
         statusHistory:[{status:"PLACED",changedAt:placedAt.toISOString(),changedBy:{id:userId,role:UserRole.CUSTOMER}}],

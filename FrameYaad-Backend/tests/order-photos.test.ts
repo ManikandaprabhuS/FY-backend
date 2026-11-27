@@ -31,7 +31,8 @@ beforeEach(()=>{
  vi.clearAllMocks();rows=[];objects=new Set();
  m.auth.mockResolvedValue({data:{user:{id:owner,email_confirmed_at:"2026-01-01",phone_confirmed_at:null}},error:null});
  m.user.mockResolvedValue(profile());
- m.cart.mockResolvedValue(null);m.variants.mockResolvedValue([]);
+ const variantId='00000000-0000-4000-8000-000000000001';
+ m.cart.mockResolvedValue({items:[{productIdentifier:'PHOTO-TEST',selectedVariantId:variantId,product:{variantId}}]});m.variants.mockResolvedValue([{id:variantId,maxPhotoSizeMB:null,frameSize:'8x10',product:{productIdentifier:'PHOTO-TEST',productName:'Dummy upload-enabled frame',allowCustomerPhoto:true,maxPhotoMb:4},primaryProducts:[]}]);
  m.findFirst.mockImplementation(({where}:{where:{id?:string;userId?:string;status?:string;orderId?:null}})=>Promise.resolve(rows.find(p=>(!where.id||p.id===where.id)&&(!where.userId||p.userId===where.userId)&&(!where.status||p.status===where.status)&&(where.orderId!==null||p.orderId===null))??null));
  m.find.mockImplementation(({where}:{where:{orderId:string}})=>Promise.resolve(rows.find(p=>p.orderId===where.orderId)??null));
  m.create.mockImplementation(({data}:{data:Photo})=>{const p={...data,orderId:null};rows.push(p);return Promise.resolve(p);});

@@ -26,6 +26,7 @@ export async function getTempPhoto(userId: string) {
 export async function uploadPhoto(userId: string, file?: Express.Multer.File, context?:unknown) {
   if (!file) throw new ApiError(400, "Please choose a photo.", "PHOTO_REQUIRED");
   const limits = await resolvePhotoContext(prisma,userId,context);
+  if(!limits.allowCustomerPhoto)throw new ApiError(400,'Photo upload is not available for the selected products. You can place this order without a photo.','PHOTO_NOT_ALLOWED');
   if(file.buffer.length>limits.maxBytes)throw new ApiError(413,photoSizeError(file.buffer.length,limits.maxBytes),"PHOTO_TOO_LARGE",{maxAllowedMB:limits.maxAllowedMB});
   const type = verifiedPhotoType(file.buffer);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });

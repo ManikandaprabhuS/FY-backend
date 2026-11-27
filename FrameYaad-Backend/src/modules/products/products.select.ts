@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 export const productViewSelect = {
+  allowCustomerPhoto:true,maxPhotoMb:true,isFrameyaadArt:true,
   id: true,
   productIdentifier: true,
   productName: true,

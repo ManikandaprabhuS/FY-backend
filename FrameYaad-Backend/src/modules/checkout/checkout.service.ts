@@ -90,7 +90,7 @@ export const getCheckoutOffers=async(userId:string,items?:CheckoutItem[],include
   const [totals,eligibility,addresses,photoLimit]=await Promise.all([
     totalsPromise,eligibleOffers(prisma,userId,totalsPromise.then(value=>value.subtotal)),
     prisma.userAddress.findMany({where:{userId},select:{id:true,addressLine:true,city:true,state:true,country:true,postalCode:true,contactPerson:true,contactNumber:true}}),
-    selections.length?resolvePhotoContext(prisma,userId,selections):Promise.resolve({maxAllowedMB:DEFAULT_PHOTO_MAX_MB,limitingItem:null})
+    selections.length?resolvePhotoContext(prisma,userId,selections):Promise.resolve({allowCustomerPhoto:false,maxAllowedMB:DEFAULT_PHOTO_MAX_MB,limitingItem:null,policyVersion:'empty'})
   ]);
   return {photoLimit,...(includeItems?{items:summaryItems,defaultAddress:addresses[0]??null}:{}),offers:totals.subtotal.gt(0)?eligibility.offers:[],unavailableOffers:totals.subtotal.gt(0)?eligibility.unavailableOffers:[],subtotal:totals.subtotal.toNumber(),addresses,bigOrderRemovalMessage:eligibility.bigOrderRemovalMessage};
 };

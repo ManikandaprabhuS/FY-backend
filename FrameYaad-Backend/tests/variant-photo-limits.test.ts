@@ -43,6 +43,11 @@ it("rejects exactly 2 MB plus one byte through the authenticated API",async()=>{
  const response=await request(app).post("/api/v1/order-photos").set("Authorization","Bearer test").attach("photo",file(2*PHOTO_MB_BYTES+1).buffer,"photo.jpg");
  expect(response.status).toBe(413);expect(JSON.stringify(response.body)).toContain("up to 2 MB");expect(m.upload).not.toHaveBeenCalled();
 });
+it('rejects a direct photo API upload when every selected product disables uploads',async()=>{
+ const variant=row();m.variants.mockResolvedValue([{...variant,product:{...variant.product,allowCustomerPhoto:false,maxPhotoMb:null}}]);
+ const response=await request(app).post('/api/v1/order-photos').set('Authorization','Bearer test').attach('photo',jpeg,'photo.jpg');
+ expect(response.status).toBe(400);expect(response.body.error.code).toBe('PHOTO_NOT_ALLOWED');expect(m.upload).not.toHaveBeenCalled();
+});
 it("resolves trusted DB limits from local selection IDs and rejects unrelated IDs or client limits",async()=>{
  const db={cart:{findUnique:m.cart},variant:{findMany:m.variants}};
  const result=await resolvePhotoContext(db as never,userId,[{productIdentifier:"P",variantId,quantity:1}]);

@@ -272,6 +272,10 @@ model Variant {
 }
 
 model Product {
+  allowCustomerPhoto Boolean @default(true) @map("allow_customer_photo")
+  maxPhotoMb Decimal? @default(4) @map("max_photo_mb") @db.Decimal(3,1)
+  isFrameyaadArt Boolean @default(false) @map("is_frameyaad_art")
+  @@index([isFrameyaadArt,createdAt(sort:Desc)],map:"product_arts_created_idx")
   id                String   @id @default(uuid())
   materialId        String   @map("materialId")
   variantId         String?  @map("variantId")
@@ -347,6 +351,7 @@ model CartItem {
 }
 
 model Order {
+  customerPhotoAllowed Boolean @default(true) @map("customer_photo_allowed")
   id            String      @id @default(uuid())
   userId        String      @map("userId")
   orderNumber   String      @unique @map("orderNumber") @db.VarChar(40)

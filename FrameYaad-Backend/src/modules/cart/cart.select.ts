@@ -20,6 +20,7 @@ export const cartViewSelect = {
         select: {
           id: true,
           productName: true,
+          allowCustomerPhoto:true,maxPhotoMb:true,isFrameyaadArt:true,
           material: { select: { id: true, name: true, brandName: true, isActive: true } },
           variant: {
             select: {
