@@ -1,4 +1,6 @@
 import { UserRole } from "@prisma/client";
+import {createHash} from 'node:crypto';
+import {inFlight} from '../utils/in-flight';
 import type { RequestHandler } from "express";
 
 import { supabaseAdmin } from "../config/supabase";
@@ -7,12 +9,14 @@ import { ApiError } from "../utils/api-error";
 import { getAccessToken } from "../utils/auth-cookies";
 import { userViewSelect } from "../utils/user-view";
 import {wakeDeliveryWorker} from '../services/delivery/outbox-signal';
+const verifyInFlight=inFlight<Awaited<ReturnType<typeof supabaseAdmin.auth.getUser>>>();
 
 const resolveAuthentication = async (request: Parameters<RequestHandler>[0]): Promise<boolean> => {
   const accessToken = getAccessToken(request);
   if (!accessToken) return false;
+  if(request.auth?.accessToken===accessToken)return true;
 
-  const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
+  const { data, error } = await verifyInFlight(createHash('sha256').update(accessToken).digest('hex'),()=>supabaseAdmin.auth.getUser(accessToken));
   if (error || !data.user) return false;
 
   let user = await prisma.user.findUnique({

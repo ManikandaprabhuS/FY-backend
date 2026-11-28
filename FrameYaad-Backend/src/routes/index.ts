@@ -1,4 +1,6 @@
 import {contactPublicRouter,contactAdminRouter} from "../modules/contact-media/contact-media.routes";
+import {getBusinessFacts} from '../config/business-facts';
+import {refundRequestsRouter} from '../modules/refund-requests/refund-requests.routes';
 import {photoCleanupRouter} from "../modules/photo-cleanup/photo-cleanup.routes";
 import { Router } from "express";
 import {homeBannerRouter} from "../modules/home-banner/home-banner.routes";
@@ -29,6 +31,8 @@ import { checkoutRouter } from "../modules/checkout/checkout.routes";
 import {orderPhotosRouter} from "../modules/order-photos/order-photos.routes";
 import {bannerImageRouter} from "../modules/home-banner/banner-image.routes";
 export const apiRouter = Router();
+apiRouter.get('/config/business-facts',async(_request,response)=>{response.json({success:true,data:await getBusinessFacts()});});
+apiRouter.use('/refund-requests',refundRequestsRouter);
 apiRouter.use("/site",contactPublicRouter);
 apiRouter.use("/admin/contact-settings",contactAdminRouter);
 apiRouter.use("/admin",photoCleanupRouter);

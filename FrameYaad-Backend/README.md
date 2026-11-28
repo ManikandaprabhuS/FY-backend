@@ -1,5 +1,94 @@
 # FrameYaad Backend
 
+## 2026-11-28: Approved refund/replacement evidence cleanup
+
+Photo Cleanup > Refund evidence now allows selecting submitted APPROVED refunds and replacements by default, alongside closed requests. Pending/under-review requests and unsubmitted drafts still require the explicit warning override. Server checks enforce the same policy before and inside the deletion transaction. Confirmation removes private storage objects and marks file metadata deleted; it does not delete requests, close an approved task, change refund/replacement state, refund amounts, revenue or stock. Request text/audit records are intentionally retained for financial integrity. This reclaims media storage, not significant database table space. No automatic cleanup or migration added.
+
+Verification: backend typecheck and 7 focused policy/RBAC tests pass; frontend typecheck and 8 refund/cleanup tests pass. Browser dummy fixtures verify both approved resolutions are selectable, bulk evidence deletion needs no open override, amounts/status remain unchanged, and no page errors at desktop/mobile widths. No existing request or uploaded file was deleted during testing; no production deployment.
+
+## 2026-11-28: Admin notification stability and backend loading RCA
+
+### Confirmed causes and fixes
+
+| Cause | Evidence | Fix |
+| --- | --- | --- |
+| Notification history hid all rows on every Realtime refresh | Its effect unconditionally set loading=true; a delayed refresh rendered skeletons instead of existing rows | Keep existing rows during same-query reconciliation; initial loads and changed page/filter still show the existing skeleton |
+| Duplicate Supabase Auth work across concurrent admin requests | Six simultaneous notification reads made six remote getUser calls | Bounded in-flight-only verification sharing by SHA-256 token key; no token/result TTL cache. Every HTTP request still reads the current database role/active state |
+| Repeated notification list/count/link queries competed for a small DB pool | Six reads took 7,960 ms; current dev runtime URL has connection_limit=2, pool_timeout=15 | Coalesce only overlapping identical list queries, scoped by identity, role and validated filters. Results/failures are removed immediately on settlement; no stale data cache |
+| Sequential independent link lookups | Reviews, customer, refund and cancellation links were resolved in successive awaits | Start independent lookups together using Promise.all; retain the same authorized links and fields |
+| Notification GET requests had no timeout | Axios notification reads omitted timeout | Use the same 15-second bound already used by notification read mutations; background failures retain current content |
+
+Auth is reused within one Express request if multiple mounted guards run. No permissions, status/refund/stock/revenue rules, endpoints, request parameters, notification text, polling cadence, schema or UI design changed. No new dependencies, migrations or environment edits. Authentication is not cached across completed requests; failed verification is retried normally.
+
+### Local dev measurements
+
+Same Node/Express app and dedicated dev Supabase DB; one temporary, clearly named Dummy Test Admin Performance account, no email worker or mail sends. Times are HTTP response completion (not browser first paint or a production SLA), one warm sample per endpoint before/after. Response sizes below are JSON bytes, identical before/after. Network variability matters: not every page improved, and small differences are not statistically significant.
+
+| Page / existing API | Before ms | After ms | JSON bytes |
+| --- | ---: | ---: | ---: |
+| Overview revenue (explicit 2026 date range) | 1452 | 1412 | 3208 |
+| Products | 1409 | 1268 | 10445 |
+| Orders | 2200 | 2175 | 58159 |
+| Customers | 1162 | 1247 | 7109 |
+| Reviews | 1113 | 1011 | 4808 |
+| Appointments | 821 | 810 | 592 |
+| Notifications | 2279 | 1599 | 8225 |
+| Employees | 879 | 857 | 553 |
+| Six concurrent notification reads (wall time) | 7960 | 1667 | 8225 each |
+| Remote Auth calls in that six-request burst | 6 | 1 | — |
+
+Notification response improved about 30%; duplicate-read burst about 79%. Sequential pages still verify tokens freshly (8 remote checks for 8 endpoints); reducing that by caching authorization would change security behavior, so it was not done. The benchmark script is `scripts/measure-admin-loading.ts` (explicit CONFIRM_DEV_DATABASE=true required). Both test runs confirmed deletion of the temporary Prisma/Supabase Auth user and its scoped records. No real customer/order data was edited.
+
+### Verification and remaining slow paths
+
+- Complete backend suite: 710 passed, 0 failed. Backend typecheck/build pass. Focused changed runtime/test lint passes.
+- Frontend notification optimistic-read, Realtime and popup-navigation tests: 15 passed. Typecheck and production build pass.
+- Actual notification-page component in Edge, mocked API at 1440/375: slow background refresh kept rows visible without skeleton flicker; a 503 retained existing rows and displayed the current error state. No horizontal overflow or page console errors. This is a component regression, not a claim of production Realtime latency.
+- Auth regressions verify separate tokens do not share results, failures are not retained, every request reads the database role, and the next request rejects a deactivated account.
+- Remaining: single-page remote DB requests still take roughly 0.8–2.2 seconds, especially the Orders detail-rich payload. The two-connection pool makes bursts sensitive to query queueing. Do not raise connection_limit without checking Supabase pool capacity and backend instance count. Production host cold-start/region/network latency was not measured or altered; moving regions or scaling needs deployment approval. No indexes were added without query-plan evidence; lists were already paginated and major counts already grouped/parallel. Routes already use lazy imports and App checks the session once, not once per route.
+- No production deployment, commit or push performed.
+
+## 2026-11-28: Customer refund requests, admin Refund Requests menu and manual evidence cleanup
+
+Implemented customer Delivered-order requests (within 48 hours of a known delivery timestamp), optional affected items/evidence, withdrawal, staff review/refund/replacement actions, private evidence viewing, notifications and durable email jobs. Unknown historical delivery dates remain ineligible rather than being invented. Existing cancelled-order refunds and stock rules are unchanged; return requests never automatically change stock.
+
+**Owner clarification: deletion is manual only.** No refund-evidence cron, trigger, scheduled job, expiry countdown or automatic 3–5 day deletion promise was added. Staff use Photo Cleanup > Refund evidence; closed requests are selectable by default, with explicit warning/confirmation for open requests and unsubmitted drafts. Storage objects are removed before file records are marked deleted; request text/audit records remain. Abandoned uploads stay visible for manual cleanup. Existing unrelated order-photo maintenance is unchanged.
+
+### Refund cap and reliability
+
+`Order.refundedAmount` reserves the sum of INITIATED/COMPLETED return refunds; `completedReturnRefund` records only completed amounts. Approval and initiation both enforce the remaining actual paid total (after discounts), using decimal amounts, a per-order transaction lock, request version and idempotency key. Completion deducts only that request's amount from active-order revenue, once; initiation does not reduce revenue. Admin request and Order Details show refunded/reserved, completed and remaining amounts. These controls record manual payments, not a payment-gateway transfer.
+
+Business changes, audit and outbox intents are committed together. Existing asynchronous delivery jobs handle notifications/email retries; no Redis or new dependency. Customer ownership and ADMIN/EMPLOYEE checks are server-side. Supabase bucket `refund-evidence` is private, with direct signed uploads (no file body through Netlify/Node), server metadata/signature validation, and staff-only read/download links valid 120 seconds. Config: `src/modules/refund-requests/refund-policy.ts`: 5 photos x 5 MB, 1 video x 30 MB, 55 MB combined; JPG/PNG/WebP/HEIC and MP4/MOV/WebM. The bucket hard limit is 30 MB; individual photo limits are verified before submission. Signed upload tokens follow the provider lifetime; they are not public read links.
+
+### Migration and deployment notes
+
+Additive migration `20261128010000_refund_requests` was applied to the dedicated dev database only. It adds request/file/audit tables, delivery timestamp and refund totals, indexes/constraints/RLS and the private bucket. Existing known DELIVERED history timestamps are backfilled; unknown timestamps stay empty. No production deployment performed. Deploy the backend migration before the updated API/frontend: `npx prisma migrate deploy`, `npx prisma generate`, then normal build. Safe rollback instructions: `docs/refund-requests-rollback.sql` (refuses to discard existing request history; export/archive first). Keep existing Resend/outbox configuration; real dispatch remains disabled in these tests.
+
+### Shared business facts
+
+Read-only server helper `src/config/business-facts.ts` and public-safe `GET /api/v1/config/business-facts`; existing Contact Settings JSON holds `details.businessFacts`, with minimal fields on that existing form. No additional table or admin page. A 30-second shared cache is invalidated on settings save. Queued email support details and refund links use this helper; existing templates/brand design are reused. No legal-page implementation existed, so no legal text or pages were invented; this endpoint is available to those future consumers.
+
+| Public key | Existing source / fallback | Current dev value |
+| --- | --- | --- |
+| brandName | details.businessFacts.brandName / approved default | FrameYaad |
+| siteUrl | details.businessFacts.siteUrl / approved default | https://frameyaad.com |
+| email, phone, address | existing details.email/phone/address | Empty; owner must fill |
+| gstin | details.businessFacts.gstin | Empty; owner must fill |
+| workshops | details.businessFacts.workshops / approved defaults | Oddanchatram, Tirupur |
+| grievanceOfficer, jurisdiction | matching businessFacts fields | Empty; owner must fill |
+| deliveryDaysMin, deliveryDaysMax | matching businessFacts fields / approved defaults | 3, 6 |
+| payments.cod, payments.online | businessFacts.payments / approved defaults | true, false |
+
+Empty contact values are omitted from email support lines; no secrets/internal notes are exposed. No credentials or test inboxes are hardcoded.
+
+### Executed tests and remaining acceptance
+
+- Backend: 705 tests passed, 0 failed; typecheck/build and focused new-code lint passed. New policy/RBAC tests cover ownership, 48-hour eligibility, limits and public-safe facts.
+- Dedicated dev integration (`CONFIRM_DEV_DATABASE=true npx tsx scripts/verify-refund-requests.ts`, with real mail disabled): actual signed PNG upload/read/delete and expired URL rejection; unauthorized access, file limits/MIME, duplicate request, review/refund/replacement/reject/withdraw, transaction races and repeated actions passed. A Rs 1,200 paid order reserved Rs 400 with no revenue change; completing it left net revenue Rs 800. The remaining Rs 800 refunded once; Rs 801 was rejected. Simulated mail failure retried safely; 16 emails captured, none actually sent.
+- Cleanup verified exact baseline before/after: 16 orders, stock 82, active gross revenue Rs 16,380.20, 0 refund requests. Dummy orders, users, notifications, jobs and storage files removed.
+- Frontend: 8 focused tests passed. Full suite 329/354 passed with the same 25 pre-existing failures (not an all-green suite). Typecheck/build passed. Edge browser component fixtures at 1440/375 verified request submission/withdrawal, capped approval/initiation/completion, manual cleanup, modal close and no horizontal overflow/console errors; fixture API mutations did not affect real data.
+- Still manual: authenticated customer/admin navigation acceptance, large/HEIC/video media across devices, actual Resend delivery/webhook verification, and export/PDF visual inspection. The production build succeeds but the existing SEO catalog fetch warns that the API was unavailable; rebuild with a reachable catalog API before deployment so product URLs are generated. No claim of real inbox delivery or production rollout.
+
 ## 2026-11-27: Product toggles (customer photo upload, max size, FrameYaad Arts) + FrameYaad Arts section
 
 Discovery: existing nullable per-variant maxPhotoSizeMB supports 1–10 MB (one decimal), with 4 MB fallback and the strictest cart limit. Product forms use Material, not a distinct category selector. Public products flow through the shared catalog/facets service; identifier reads serve direct URLs, wishlist/cart and reviews. No product version/audit mechanism or sitemap/JSON-LD/llms.txt pipeline existed, so no unrelated mechanism was introduced.

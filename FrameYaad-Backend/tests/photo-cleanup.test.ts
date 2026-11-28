@@ -1,8 +1,8 @@
 import {randomUUID} from "node:crypto";
 import {beforeEach,expect,it,vi} from "vitest";
 import request from "supertest";
-const m=vi.hoisted(()=>({find:vi.fn(),update:vi.fn(),audit:vi.fn(),remove:vi.fn(),copy:vi.fn(),signed:vi.fn(),tx:vi.fn(),query:vi.fn(),raw:vi.fn(),aggregate:vi.fn(),order:vi.fn(),auth:vi.fn(),user:vi.fn()}));
-vi.mock("../src/prisma/client",()=>({prisma:{orderPhoto:{findUnique:m.find,aggregate:m.aggregate},photoCleanupAudit:{create:m.audit},order:{findUnique:m.order},user:{findUnique:m.user},$transaction:m.tx,$queryRaw:m.query,$queryRawUnsafe:m.raw}}));
+const m=vi.hoisted(()=>({find:vi.fn(),update:vi.fn(),audit:vi.fn(),remove:vi.fn(),copy:vi.fn(),signed:vi.fn(),tx:vi.fn(),query:vi.fn(),raw:vi.fn(),aggregate:vi.fn(),refundAggregate:vi.fn(),order:vi.fn(),auth:vi.fn(),user:vi.fn()}));
+vi.mock("../src/prisma/client",()=>({prisma:{refundRequestFile:{aggregate:m.refundAggregate},orderPhoto:{findUnique:m.find,aggregate:m.aggregate},photoCleanupAudit:{create:m.audit},order:{findUnique:m.order},user:{findUnique:m.user},$transaction:m.tx,$queryRaw:m.query,$queryRawUnsafe:m.raw}}));
 vi.mock("../src/config/supabase",()=>({supabaseAdmin:{auth:{getUser:m.auth},storage:{from:()=>({remove:m.remove,copy:m.copy,createSignedUrl:m.signed})}},createUserSupabaseClient:vi.fn()}));
 import {app} from "../src/app";
 import {cleanupQuery,cleanupDelete,listCleanup,deleteCleanup} from "../src/modules/photo-cleanup/photo-cleanup.service";
@@ -14,6 +14,7 @@ let rows:Photo[],files:Set<string>,audit:unknown[];
 const photo=(status="DELIVERED"):Photo=>{const id=randomUUID(),orderId=randomUUID();return{id,userId:owner,orderId,status:"ATTACHED",storagePath:owner+"/"+orderId+"/FY-Customer-photo.jpg",fileName:"FY-Customer-photo.jpg",sizeBytes:1024,order:{id:orderId,status}};};
 beforeEach(()=>{
  vi.clearAllMocks();invalidateStorageMetrics();rows=[photo()];files=new Set(rows.map(r=>r.storagePath));audit=[];
+ m.refundAggregate.mockResolvedValue({_sum:{sizeBytes:0},_count:{_all:0}});
  m.find.mockImplementation(({where}:{where:{id?:string;orderId?:string}})=>Promise.resolve(rows.find(r=>where.id?r.id===where.id:r.orderId===where.orderId)??null));
  m.update.mockImplementation(({where,data}:{where:{id:string};data:Partial<Photo>})=>{const p=rows.find(r=>r.id===where.id)!;Object.assign(p,data);return Promise.resolve(p);});
  m.audit.mockImplementation((args:unknown)=>{audit.push(args);return Promise.resolve({});});

@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { resolveLegacyColor } from "../colors/colors.values";
 
 export const orderViewSelect = {
+  deliveredAt:true,refundedAmount:true,completedReturnRefund:true,
+  refundRequests:{where:{requestedAt:{not:null}},select:{id:true,status:true,refundStatus:true,resolution:true,approvedAmount:true,requestedAt:true}},
   customerPhotoAllowed:true,
   photoId: true, photoFileName: true, photoSizeBytes: true,
   customerPhoto:{select:{status:true,deletedAt:true,deletedByName:true}},

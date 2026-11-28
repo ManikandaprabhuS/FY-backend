@@ -153,6 +153,7 @@ enum AppointmentEmailStatus {
 }
 
 model User {
+  refundRequests RefundRequest[]
   id                    String   @id @default(uuid())
   name                  String
   email                 String   @unique
@@ -350,7 +351,70 @@ model CartItem {
   @@map("CartItem")
 }
 
+model RefundRequest {
+ id String @id
+ orderId String
+ userId String
+ reasonCategory String @default("") @db.VarChar(80)
+ reasonDetails String @default("") @db.VarChar(500)
+ preferredResolution String @default("REFUND") @db.VarChar(20)
+ affectedItemIds String[] @default([])
+ status String @default("REQUESTED") @db.VarChar(20)
+ resolution String? @db.VarChar(20)
+ approvedAmount Decimal? @db.Decimal(12,2)
+ adminMessage String @default("") @db.VarChar(500)
+ internalNotes String @default("") @db.VarChar(2000)
+ refundStatus String? @db.VarChar(10)
+ requestedAt DateTime? @db.Timestamptz(3)
+ reviewedAt DateTime? @db.Timestamptz(3)
+ closedAt DateTime? @db.Timestamptz(3)
+ filesDeletedAt DateTime? @db.Timestamptz(3)
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+ version Int @default(1)
+ order Order @relation(fields:[orderId],references:[id],onDelete:Restrict)
+ user User @relation(fields:[userId],references:[id],onDelete:Restrict)
+ files RefundRequestFile[]
+ audit RefundRequestAudit[]
+ @@index([status,requestedAt(sort:Desc)],map:"refund_request_list_idx")
+ @@index([userId,createdAt(sort:Desc)],map:"refund_request_owner_idx")
+ @@map("refund_requests")
+}
+model RefundRequestFile {
+ id String @id
+ requestId String
+ storagePath String @unique
+ kind String @db.VarChar(10)
+ sizeBytes Int
+ mimeType String @db.VarChar(80)
+ originalName String @db.VarChar(160)
+ uploadedAt DateTime? @db.Timestamptz(3)
+ deletedAt DateTime? @db.Timestamptz(3)
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ request RefundRequest @relation(fields:[requestId],references:[id],onDelete:Restrict)
+ @@index([requestId],map:"refund_files_request_idx")
+ @@map("refund_request_files")
+}
+model RefundRequestAudit {
+ id String @id
+ requestId String
+ actorId String
+ actorRole String @db.VarChar(20)
+ action String @db.VarChar(40)
+ mutationKey String
+ inputHash String
+ oldValue Json
+ newValue Json
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ request RefundRequest @relation(fields:[requestId],references:[id],onDelete:Restrict)
+ @@unique([requestId,mutationKey])
+ @@map("refund_request_audit")
+}
 model Order {
+  deliveredAt DateTime? @db.Timestamptz(3)
+  refundedAmount Decimal @default(0) @db.Decimal(12,2)
+  completedReturnRefund Decimal @default(0) @db.Decimal(12,2)
+  refundRequests RefundRequest[]
   customerPhotoAllowed Boolean @default(true) @map("customer_photo_allowed")
   id            String      @id @default(uuid())
   userId        String      @map("userId")

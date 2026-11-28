@@ -208,6 +208,7 @@ export const listOrders = async (rawQuery: unknown, actorId: string, role: UserR
 };
 
 const orderExportSelect = {
+  refundedAmount:true,completedReturnRefund:true,
   customerPhoto:{select:{status:true}},photoFileName:true, photoSizeBytes:true, refundStatus:true,refundInitiatedAt:true,refundCompletedAt:true,
   id: true, createdAt: true, orderNumber: true, status: true, totalPrice: true, paymentMethod:true,
   user: { select: { name: true, email: true, phoneNumber: true } },
@@ -248,7 +249,7 @@ export const exportOrders = async (rawQuery: unknown, actorId: string, role: Use
         createdAt: order.createdAt, orderNumber: order.orderNumber, orderStatus: order.status,
         refundStatus:order.refundStatus,refundInitiatedAt:order.refundInitiatedAt,refundCompletedAt:order.refundCompletedAt,excludedFromRevenue:order.status==="CANCELLED",
         photoDeleted:order.customerPhoto?.status==="DELETED",photoUploaded: Boolean(order.photoFileName), photoFileName: order.photoFileName,
-        totalAmount: Number(order.totalPrice), user: order.user,
+        totalAmount: Number(order.totalPrice),completedRefundAmount:Number(order.completedReturnRefund),revenueAmount:order.status==='CANCELLED'?0:Number(order.totalPrice)-Number(order.completedReturnRefund), user: order.user,
         address: [order.userAddress?.addressLine, order.userAddress?.city, order.userAddress?.state, order.userAddress?.country, order.userAddress?.postalCode].filter(Boolean).join(", "),
         paymentStatus: "-", paymentMethod: order.paymentMethod??"-", exportCoupon: order.couponTitle ? order.couponTitle + " (" + Number(order.discountPercent ?? 0) + "%)" : order.couponId ? couponCodes.get(order.couponId) ?? order.couponId : "-",
         subtotal: Number(order.subtotal ?? subtotal), discount: Number(order.discountAmount ?? Prisma.Decimal.max(0, subtotal.sub(order.totalPrice))),
@@ -283,7 +284,7 @@ export const updateOrderStatus = async (id:string,input:UpdateOrderStatusInput,a
     const note=input.note??input.remark??undefined;
     const entry={status:input.status,previousStatus:existing.status,changedAt:new Date().toISOString(),changedBy:{id:actor.id,role:actor.role},...(note?{note}:{}),eventId:randomUUID()};
     const changed=await tx.order.updateMany({where:{id,status:existing.status,...(actor.role===UserRole.CUSTOMER?{userId:actor.id}:{})},
-      data:{...(input.status==="CANCELLED"?{cancelledBy:actor.role===UserRole.CUSTOMER?"customer":"admin",cancelledAt:new Date(entry.changedAt),cancellationReason:note??null}:{}),status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
+      data:{...(input.status==="DELIVERED"?{deliveredAt:new Date(entry.changedAt)}:{}),...(input.status==="CANCELLED"?{cancelledBy:actor.role===UserRole.CUSTOMER?"customer":"admin",cancelledAt:new Date(entry.changedAt),cancellationReason:note??null}:{}),status:input.status,statusHistory:[...parseStatusHistory(existing.statusHistory),entry],...(input.remark===undefined?{}:{remark:input.remark})}});
     if(!changed.count)throw new ApiError(409,"Order status changed. Please refresh and try again.","ORDER_STATUS_CONFLICT");
     if (input.status === 'CANCELLED') {
       const items = await tx.orderItem.findMany({ where: { orderId: id }, select: { snapshotVariantId: true, quantity: true } });

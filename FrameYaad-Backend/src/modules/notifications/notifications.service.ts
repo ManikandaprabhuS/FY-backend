@@ -4,6 +4,7 @@ import { prisma } from "../../prisma/client";
 import { ApiError } from "../../utils/api-error";
 import { paginationMeta } from "../../utils/pagination";
 import { notificationListQuerySchema } from "./notifications.schemas";
+import {inFlight} from '../../utils/in-flight';
 
 const notificationSelect = {
   id: true,
@@ -24,11 +25,16 @@ const audienceWhere = (userId: string, role: UserRole): Prisma.NotificationWhere
 
 const withReviewLinks = async <T extends { id: string; title: string; message:string }>(notifications: T[], role: UserRole): Promise<Array<T & { actionUrl?: string }>> => {
   const ids = role === UserRole.CUSTOMER ? [] : notifications.filter(item => item.title === "New product review").map(item => item.id);
-  const reviews = ids.length ? await prisma.review.findMany({ where: { notificationId: { in: ids } }, select: { id: true, notificationId: true } }) : [];
-  const links = new Map(reviews.map(review => [review.notificationId, "/admin/reviews?reviewId=" + review.id]));
   const customerEmails=role===UserRole.CUSTOMER?[]:notifications.filter(item=>item.title==='New customer account').flatMap(item=>{const email=item.message.match(/\(([^()\s]+@[^()\s]+)\) created a customer account\.$/)?.[1];return email?[email]:[];});
-  const customers=customerEmails.length?await prisma.user.findMany({where:{role:UserRole.CUSTOMER,email:{in:customerEmails}},select:{id:true,email:true}}):[];
+  const refundIds=role===UserRole.CUSTOMER?[]:notifications.filter(item=>item.title.startsWith('New refund request RFD-')).map(item=>item.id);
+  const [reviews,customers,refunds]=await Promise.all([
+    ids.length?prisma.review.findMany({where:{notificationId:{in:ids}},select:{id:true,notificationId:true}}):[],
+    customerEmails.length?prisma.user.findMany({where:{role:UserRole.CUSTOMER,email:{in:customerEmails}},select:{id:true,email:true}}):[],
+    refundIds.length?prisma.refundRequestAudit.findMany({where:{id:{in:refundIds}},select:{id:true,requestId:true}}):[],
+  ]);
+  const links=new Map(reviews.map(review=>[review.notificationId,'/admin/reviews?reviewId='+review.id]));
   return notifications.map(item => {
+    const refund=refunds.find(value=>value.id===item.id);if(refund)return {...item,actionUrl:'/admin/refund-requests?request='+encodeURIComponent(refund.requestId)};
     const appointmentId=role!==UserRole.CUSTOMER&&item.title==='New appointment request'?item.message.match(/^Appointment ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):/i)?.[1]:undefined;
     const email=item.title==='New customer account'?item.message.match(/\(([^()\s]+@[^()\s]+)\) created a customer account\.$/)?.[1]:undefined;
     const customer=customers.find(value=>value.email===email);
@@ -37,19 +43,19 @@ const withReviewLinks = async <T extends { id: string; title: string; message:st
 };
 
 const withOrderLinks=async<T extends {id:string;title:string;message:string}>(notifications:T[],userId:string,role:UserRole)=>{
- const linked=await withReviewLinks(notifications,role);
+ const linkedPromise=withReviewLinks(notifications,role);
  if(role!==UserRole.CUSTOMER){
   const cancellations=notifications.filter(n=>n.title==="Order cancelled").map(n=>({id:n.id,number:n.message.match(/^Order (FY-[A-Za-z0-9_-]+) by /)?.[1]}));
   const numbers=cancellations.flatMap(n=>n.number?[n.number]:[]);
-  const orders=numbers.length?await prisma.order.findMany({where:{orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[];
+  const [linked,orders]=await Promise.all([linkedPromise,numbers.length?prisma.order.findMany({where:{orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[]]);
   return linked.map(n=>{const order=orders.find(o=>o.orderNumber===cancellations.find(c=>c.id===n.id)?.number);return {...n,...(order?{actionUrl:"/admin/orders?search="+encodeURIComponent(order.orderNumber)+"&openOrder="+order.id}:{})};});
  }
  const candidates=notifications.filter(n=>n.title==="Order status updated").map(n=>({id:n.id,number:n.message.match(/^Your order (FY-[A-Za-z0-9_-]+) is now /)?.[1]}));
  const numbers=candidates.flatMap(n=>n.number?[n.number]:[]);
- const orders=numbers.length?await prisma.order.findMany({where:{userId,orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[];
+ const [linked,orders]=await Promise.all([linkedPromise,numbers.length?prisma.order.findMany({where:{userId,orderNumber:{in:numbers}},select:{id:true,orderNumber:true}}):[]]);
  return linked.map(n=>{const number=candidates.find(c=>c.id===n.id)?.number;const order=orders.find(o=>o.orderNumber===number);return {...n,...(order?{actionUrl:"/orders/"+order.id}:{})};});
 };
-export const listNotifications = async (userId: string, role: UserRole, rawQuery: unknown) => {
+const loadNotifications = async (userId: string, role: UserRole, rawQuery: unknown) => {
   const { page, limit, read, type } = notificationListQuerySchema.parse(rawQuery);
   const where: Prisma.NotificationWhereInput = {
     ...audienceWhere(userId, role),
@@ -71,6 +77,12 @@ export const listNotifications = async (userId: string, role: UserRole, rawQuery
   const readCount = counts.get(true) ?? 0;
   const total = read === undefined ? unreadCount + readCount : counts.get(read) ?? 0;
   return { notifications: await withOrderLinks(notifications, userId, role), pagination: paginationMeta(page, limit, total), summary: { totalCount: unreadCount + readCount, unreadCount, readCount } };
+};
+
+const listInFlight=inFlight<Awaited<ReturnType<typeof loadNotifications>>>();
+export const listNotifications=(userId:string,role:UserRole,rawQuery:unknown)=>{
+ const query=notificationListQuerySchema.parse(rawQuery);
+ return listInFlight(JSON.stringify([userId,role,query]),()=>loadNotifications(userId,role,query));
 };
 
 export const unreadCount = (userId: string, role: UserRole) =>

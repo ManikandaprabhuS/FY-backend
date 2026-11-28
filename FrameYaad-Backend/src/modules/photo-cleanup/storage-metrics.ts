@@ -10,15 +10,17 @@ export async function storageMetrics(refresh=false):Promise<StorageMetrics>{
  if(inflight?.revision===revision)return inflight.promise;
  const current=revision;
  const promise=(async()=>{
-  const [database,photos,pending]=await Promise.all([
+  const [database,photos,pending,refundFiles,refundPending]=await Promise.all([
    safe(()=>prisma.$queryRawUnsafe<Array<{bytes:bigint}>>("SELECT public.frameyaad_database_size() AS bytes")),
    safe(()=>prisma.orderPhoto.aggregate({where:{status:{not:"DELETED"}},_sum:{sizeBytes:true}})),
-   safe(()=>prisma.orderPhoto.aggregate({where:{status:"ATTACHED",order:{status:{in:["DELIVERED","CANCELLED"]}}},_sum:{sizeBytes:true},_count:{_all:true}}))
+   safe(()=>prisma.orderPhoto.aggregate({where:{status:"ATTACHED",order:{status:{in:["DELIVERED","CANCELLED"]}}},_sum:{sizeBytes:true},_count:{_all:true}})),
+   safe(()=>prisma.refundRequestFile.aggregate({where:{deletedAt:null},_sum:{sizeBytes:true}})),
+   safe(()=>prisma.refundRequestFile.aggregate({where:{deletedAt:null,request:{OR:[{status:{in:['COMPLETED','REJECTED','WITHDRAWN']}},{requestedAt:null,createdAt:{lt:new Date(Date.now()-86400000)}}]}},_sum:{sizeBytes:true},_count:{_all:true}}))
   ]);
   const value:StorageMetrics={
    database:{bytes:database?Number(database[0]?.bytes??0):null,limitBytes:env.DB_SIZE_LIMIT_MB?env.DB_SIZE_LIMIT_MB*1048576:null},
-   photos:{bytes:photos?Number(photos._sum.sizeBytes??0):null,limitBytes:env.STORAGE_LIMIT_MB?env.STORAGE_LIMIT_MB*1048576:null},
-   pending:{count:pending?pending._count._all:null,bytes:pending?Number(pending._sum.sizeBytes??0):null},
+   photos:{bytes:photos&&refundFiles?Number(photos._sum.sizeBytes??0)+Number(refundFiles._sum.sizeBytes??0):null,limitBytes:env.STORAGE_LIMIT_MB?env.STORAGE_LIMIT_MB*1048576:null},
+   pending:{count:pending&&refundPending?pending._count._all+refundPending._count._all:null,bytes:pending&&refundPending?Number(pending._sum.sizeBytes??0)+Number(refundPending._sum.sizeBytes??0):null},
    generatedAt:new Date().toISOString(),includesBanners:false
   };
   if(current===revision)cache={until:Date.now()+300000,value};return value;

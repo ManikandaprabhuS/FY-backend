@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {businessFactsFields} from '../../config/business-facts';
 import {ApiError} from "../../utils/api-error";
 import {verifiedPhotoType} from "../order-photos/photo-file";
 export const CONTACT_VIDEO_MAX=50*1024*1024,CONTACT_IMAGE_MAX=2*1024*1024;
@@ -7,6 +8,7 @@ export type MediaKind=z.infer<typeof mediaKind>;
 const text=(min:number,max:number)=>z.string().trim().min(min).max(max).refine(v=>!/[<>]/.test(v)&&!Array.from(v).some(c=>c.charCodeAt(0)<32),"Use plain text without HTML.");
 const optional=(schema:z.ZodType<string>)=>z.union([schema,z.literal(""),z.null()]).transform(v=>v||null);
 export const contactDetailsSchema=z.object({
+ businessFacts:businessFactsFields.optional(),
  phone:optional(z.string().trim().max(30).regex(/^\+?[0-9 ()-]+$/,"Enter a valid phone number.").refine(v=>{const n=v.replace(/\D/g,"").length;return n>=7&&n<=15;},"Enter 7–15 phone digits.")),
  email:optional(z.string().trim().toLowerCase().max(254).email("Enter a valid email.")),
  studioName:optional(text(2,120)),address:optional(text(5,500)),

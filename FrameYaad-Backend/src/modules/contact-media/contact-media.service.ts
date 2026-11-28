@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {invalidateBusinessFacts} from '../../config/business-facts';
 import {Prisma,UserRole} from "@prisma/client";
 import {prisma} from "../../prisma/client";
 import {supabaseAdmin} from "../../config/supabase";
@@ -8,7 +9,7 @@ import {ApiError} from "../../utils/api-error";
 import {getHeroVideo} from "../site-media/site-media.service";
 import {validateContactFile,type MediaKind} from "./contact-media.validation";
 
-export type ContactDetails={phone:string|null;email:string|null;studioName:string|null;address:string|null};
+export type ContactDetails={phone:string|null;email:string|null;studioName:string|null;address:string|null;businessFacts?:import('zod').z.infer<typeof import('../../config/business-facts').businessFactsFields>};
 type Asset={url:string;path:string;fileName:string;sizeBytes:number};
 type Payload={video?:Asset|null;poster?:Asset|null;banner?:Asset|null;details?:ContactDetails};
 type Setting={key:string;data:Payload;updatedBy:string|null;updatedAt:Date};
@@ -89,9 +90,10 @@ export async function updateContactDetails(details:ContactDetails,actor:Actor){
  await prisma.$transaction(async tx=>{
   const rows=await tx.$queryRawUnsafe<Setting[]>('SELECT key,data,"updatedBy","updatedAt" FROM public.site_contact_settings WHERE key=$1 FOR UPDATE',"contact_details");
   if(!rows[0])throw fail();
+  details={...details,businessFacts:details.businessFacts===undefined?rows[0].data.details?.businessFacts:{...rows[0].data.details?.businessFacts,...details.businessFacts}};
   await tx.$executeRawUnsafe('UPDATE public.site_contact_settings SET data=$1::jsonb,"updatedBy"=$2,"updatedAt"=CURRENT_TIMESTAMP WHERE key=$3',JSON.stringify({details}),actor.id,"contact_details");
   await tx.offerAudit.create({data:{offerCode:"BIG_ORDER",field:"contact.details",oldValue:JSON.parse(JSON.stringify(rows[0].data.details??{})) as Prisma.InputJsonValue,newValue:JSON.parse(JSON.stringify(details)) as Prisma.InputJsonValue,actorId:actor.id,actorName:actor.name}});
- },{timeout:15000}).catch(()=>{throw fail();});invalidateContactMedia();return adminContactSettings();
+ },{timeout:15000}).catch(()=>{throw fail();});invalidateContactMedia();invalidateBusinessFacts();return adminContactSettings();
 }
 
 let sweeping=false,maintenanceStarted=false;
